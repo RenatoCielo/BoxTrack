@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.groups.models import Group
 from apps.trainings.models import Training, TrainingReservation
 from apps.accounts.models import User
+from apps.common.permissions import user_role
 
 
 class TrainingSerializer(serializers.ModelSerializer):
@@ -26,6 +27,10 @@ class TrainingSerializer(serializers.ModelSerializer):
         capacity = attrs.get('capacity')
         if trainer and trainer.club_id != club_id:
             raise serializers.ValidationError({'trainer': 'El entrenador debe pertenecer al mismo club.'})
+        if trainer and (not trainer.is_active or user_role(trainer) != 'TRAINER'):
+            raise serializers.ValidationError({'trainer': 'Selecciona una cuenta activa con rol de entrenador.'})
+        if user_role(self.context['request'].user) == 'TRAINER' and trainer and trainer.id != self.context['request'].user.id:
+            raise serializers.ValidationError({'trainer': 'Solo puedes programar clases a tu nombre.'})
         if group and group.club_id != club_id:
             raise serializers.ValidationError({'group': 'El grupo debe pertenecer al mismo club.'})
         if capacity is not None and capacity < 1:

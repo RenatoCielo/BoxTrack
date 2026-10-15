@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Check, Copy, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, Copy, Pencil, Plus, Search, Trash2, UserRoundCheck, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { api, getErrorMessage, readCollection } from '../services/api';
 
 const resourceConfig = {
   athletes: {
-    title: 'Deportistas', eyebrow: 'PLANTEL', description: 'Deportistas de entrenamiento general del gimnasio.', endpoint: '/athletes/', listEndpoint: '/athletes/?is_competitor=false',
+    title: 'Deportistas', eyebrow: 'PLANTEL', description: 'Plantel completo del gimnasio, incluidos los boxeadores competidores.', endpoint: '/athletes/',
     fields: [
       { name: 'first_name', label: 'Nombre', required: true },
       { name: 'last_name', label: 'Apellido', required: true },
@@ -277,6 +277,8 @@ export function ResourcePage({ section: providedSection }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [athleteTypeFilter, setAthleteTypeFilter] = useState('ALL');
+  const [athleteStatusFilter, setAthleteStatusFilter] = useState('ALL');
   const [editing, setEditing] = useState(null);
   const [accountDialog, setAccountDialog] = useState(false);
   const [createdCredentials, setCreatedCredentials] = useState(null);
@@ -319,7 +321,12 @@ export function ResourcePage({ section: providedSection }) {
   useEffect(() => { load(); }, [config.listEndpoint || config.endpoint, section, user?.role]);
 
   const context = useMemo(() => ({ athletes: relations.athlete || [], groups: relations.group || [], trainings: relations.training || [] }), [relations]);
-  const filtered = rows.filter((row) => config.search(row, context).toLowerCase().includes(query.toLowerCase()));
+  const filtered = rows.filter((row) => {
+    if (section === 'athletes' && athleteTypeFilter === 'COMPETITORS' && !row.is_competitor) return false;
+    if (section === 'athletes' && athleteTypeFilter === 'GENERAL' && row.is_competitor) return false;
+    if (section === 'athletes' && athleteStatusFilter !== 'ALL' && row.status !== athleteStatusFilter) return false;
+    return config.search(row, context).toLowerCase().includes(query.toLowerCase());
+  });
 
   const save = async (values) => {
     setSaving(true);
@@ -393,13 +400,24 @@ export function ResourcePage({ section: providedSection }) {
     }
   };
 
+  const reactivateAthlete = async (athlete) => {
+    if (!window.confirm(`¿Reactivar a ${athlete.first_name} ${athlete.last_name} y permitirle iniciar sesión nuevamente?`)) return;
+    try {
+      await api.patch(`/athletes/${athlete.id}/`, { status: 'ACTIVE' });
+      await load();
+    } catch (requestError) {
+      setError(formErrorMessage(requestError, [{ name: 'status', label: 'Estado' }]));
+    }
+  };
+
   if (!config) return <div className="notice notice-error">Este módulo no está disponible.</div>;
 
   return (
     <section className="page-stack">
       <header className="page-heading"><div><p className="eyebrow">{config.eyebrow}</p><h1>{config.title}</h1><p className="page-description">{config.description}</p></div><div className="heading-actions">{user?.role === 'ADMIN' && accountManagedSection && <button className="button primary-btn" onClick={() => { setAccountDialog(true); setFormError(''); }}><Plus size={16} /> Crear cuenta</button>}{canManage && !accountManagedSection && <button className="button primary-btn" onClick={() => { setEditing(emptyValues(config.fields)); setFormError(''); }}><Plus size={16} /> Nuevo registro</button>}</div></header>
-      <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label={`Buscar en ${config.title}`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} /></label><span className="table-count">{filtered.length} registros</span></div>
+      <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label={`Buscar en ${config.title}`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>{section === 'athletes' && <div className="athlete-filters"><select className="control" aria-label="Filtrar por perfil" value={athleteTypeFilter} onChange={(event) => setAthleteTypeFilter(event.target.value)}><option value="ALL">Todos los perfiles</option><option value="GENERAL">Generales</option><option value="COMPETITORS">Competidores</option></select><select className="control" aria-label="Filtrar por estado" value={athleteStatusFilter} onChange={(event) => setAthleteStatusFilter(event.target.value)}><option value="ALL">Todos los estados</option><option value="ACTIVE">Activos</option><option value="INACTIVE">Inactivos</option></select></div>}<span className="table-count">{filtered.length} registros</span></div>
       {error && <div className="notice notice-error">{error}</div>}
+      {section === 'athletes' && user?.role === 'ADMIN' && rows.some((athlete) => athlete.status === 'INACTIVE') && <section className="orphan-accounts-panel"><div><p className="eyebrow">ACCESO DESACTIVADO</p><h2>Deportistas dados de baja</h2><p>Las fichas y el historial se conservan. Puedes reactivar el acceso cuando vuelvan al gimnasio.</p></div><div className="orphan-account-list">{rows.filter((athlete) => athlete.status === 'INACTIVE').map((athlete) => <div key={athlete.id}><span><strong>{athlete.first_name} {athlete.last_name}</strong><small>{athlete.user ? 'Cuenta asociada' : 'Sin cuenta asociada'}</small></span><button className="button button-secondary" onClick={() => reactivateAthlete(athlete)}>Reactivar acceso</button></div>)}</div></section>}
       {section === 'athletes' && user?.role === 'ADMIN' && orphanAthleteAccounts.length > 0 && <section className="orphan-accounts-panel"><div><p className="eyebrow">CUENTAS SIN FICHA</p><h2>Deportistas que puedes recuperar</h2><p>Estas cuentas aún existen, pero no tienen una ficha en el plantel. Recupera su perfil para volver a administrarlas.</p></div><div className="orphan-account-list">{orphanAthleteAccounts.map((account) => <div key={account.id}><span><strong>{account.first_name} {account.last_name}</strong><small>{account.username} · {account.is_active ? 'Cuenta activa' : 'Cuenta bloqueada'}</small></span><button className="button button-secondary" onClick={() => restoreOrphanAthlete(account)}>Recuperar ficha</button></div>)}</div></section>}
       <div className="table-wrap"><table className="data-table"><thead><tr>{config.columns.map((column) => <th key={column.label}>{column.label}</th>)}{canManage && <th className="actions-heading">Acciones</th>}</tr></thead><tbody>
         {loading ? <tr><td colSpan={config.columns.length + Number(canManage)} className="table-empty">Cargando registros...</td></tr>

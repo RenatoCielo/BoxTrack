@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.athletes.models import Athlete
-from apps.common.permissions import ClubRolePermission, user_role
+from apps.common.permissions import ClubRolePermission, scope_to_assigned_athletes, user_role
 from apps.notifications.models import Notification
 from apps.trainings.models import Training
 from apps.trainings.models import TrainingReservation
@@ -21,6 +21,8 @@ class ClubTrainingPermission(ClubRolePermission):
 
     def has_object_permission(self, request, view, obj):
         if not super().has_object_permission(request, view, obj):
+            return False
+        if user_role(request.user) == 'TRAINER' and obj.trainer_id != request.user.id:
             return False
         if user_role(request.user) != 'ATHLETE' or request.method not in permissions.SAFE_METHODS:
             return True
@@ -45,6 +47,8 @@ class TrainingListCreateView(generics.ListCreateAPIView):
             if not athlete:
                 return queryset.none()
             queryset = queryset.filter(Q(group__isnull=True) | Q(group_id=athlete.group_id))
+        elif user_role(user) == 'TRAINER':
+            queryset = queryset.filter(trainer_id=user.id)
         return queryset.order_by('scheduled_date', 'start_time', 'id')
 
     def perform_create(self, serializer):
@@ -69,6 +73,8 @@ class TrainingReservationListCreateView(APIView):
         queryset = Training.objects.all()
         if not request.user.is_superuser:
             queryset = queryset.filter(club_id=request.user.club_id)
+        if user_role(request.user) == 'TRAINER':
+            queryset = queryset.filter(trainer_id=request.user.id)
         if lock:
             queryset = queryset.select_for_update()
         return get_object_or_404(queryset, pk=training_id)
@@ -140,6 +146,8 @@ class TrainingReservationCancelView(APIView):
         queryset = TrainingReservation.objects.select_related('training', 'athlete')
         if not request.user.is_superuser:
             queryset = queryset.filter(training__club_id=request.user.club_id)
+        if user_role(request.user) == 'TRAINER':
+            queryset = queryset.filter(training__trainer_id=request.user.id)
         reservation = get_object_or_404(queryset, pk=reservation_id, training_id=training_id)
         role_name = getattr(getattr(request.user, 'role', None), 'name', None)
         if role_name == 'ATHLETE':

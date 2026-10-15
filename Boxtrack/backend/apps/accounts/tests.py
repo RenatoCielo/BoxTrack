@@ -11,7 +11,7 @@ from apps.trainers.models import TrainerProfile
 class AuthFlowTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.club = Club.objects.create(name='Club Test', email='club@test.com')
+        self.club = Club.objects.create(name='Club Test', email='club@test.com', verification_status='APPROVED')
         self.role_admin = Role.objects.create(name='ADMIN', description='Administrador')
         self.admin_user = User.objects.create_user(
             username='adminuser',
@@ -24,7 +24,11 @@ class AuthFlowTests(APITestCase):
     def test_register_new_club_and_admin(self):
         payload = {
             'club_name': 'Nuevo Club',
+            'club_rut': '11.111.111-1',
+            'legal_representative_name': 'Renato Cielo',
+            'legal_representative_rut': '11.111.111-1',
             'club_email': 'nuevo@club.com',
+            'disciplines': ['Boxeo', 'Crossfit'],
             'username': 'nuevoadmin',
             'email': 'nuevoadmin@club.com',
             'password': 'Password123!',
@@ -35,8 +39,25 @@ class AuthFlowTests(APITestCase):
         response = self.client.post(reverse('register'), payload, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Club.objects.filter(name='Nuevo Club').exists())
+        self.assertTrue(Club.objects.filter(name='Nuevo Club', legal_rut='111111111').exists())
+        self.assertEqual(Club.objects.get(name='Nuevo Club').verification_status, 'PENDING')
         self.assertTrue(User.objects.filter(username='nuevoadmin').exists())
+
+    def test_register_rejects_invalid_company_rut(self):
+        payload = {
+            'club_name': 'Club Inválido',
+            'club_rut': '12.345.678-0',
+            'legal_representative_name': 'Persona Responsable',
+            'legal_representative_rut': '11.111.111-1',
+            'username': 'invalidclubadmin',
+            'email': 'invalidclubadmin@club.com',
+            'password': 'Password123!'
+        }
+
+        response = self.client.post(reverse('register'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('club_rut', response.data)
 
     def test_user_can_fetch_own_profile(self):
         self.client.force_authenticate(user=self.admin_user)
@@ -45,6 +66,91 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['username'], 'adminuser')
         self.assertEqual(response.data['club']['name'], 'Club Test')
+
+    def test_existing_active_user_can_still_login(self):
+        response = self.client.post(reverse('login'), {
+            'username': 'adminuser',
+            'password': 'Password123!',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data['tokens'])
+        self.assertEqual(response.data['user']['club']['name'], 'Club Test')
+
+    def test_existing_user_can_login_with_case_insensitive_username(self):
+        response = self.client.post(reverse('login'), {
+            'username': 'ADMINUSER',
+            'password': 'Password123!',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['user']['username'], 'adminuser')
+
+    def test_existing_user_can_login_with_email(self):
+        response = self.client.post(reverse('login'), {
+            'username': 'admin@test.com',
+            'password': 'Password123!',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['user']['username'], 'adminuser')
+
+    def test_ambiguous_legacy_email_does_not_authenticate_wrong_account(self):
+        User.objects.create_user(
+            username='another-admin',
+            email=self.admin_user.email,
+            password='AnotherPassword123!',
+            role=self.role_admin,
+            club=self.club,
+        )
+
+        response = self.client.post(reverse('login'), {
+            'username': self.admin_user.email,
+            'password': 'Password123!',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_inactive_user_cannot_login_until_admin_reactivates_profile(self):
+        athlete_role = Role.objects.create(name='ATHLETE', description='Deportista')
+        inactive_user = User.objects.create_user(
+            username='inactive-boxer',
+            email='inactive@test.com',
+            password='Password123!',
+            role=athlete_role,
+            club=self.club,
+            is_active=False,
+        )
+        self.client.force_authenticate(user=self.admin_user)
+        athlete = Athlete.objects.create(
+            club=self.club,
+            user=inactive_user,
+            first_name='Boxeador',
+            last_name='Inactivo',
+            status='INACTIVE',
+        )
+        self.client.force_authenticate(user=None)
+
+        denied_response = self.client.post(reverse('login'), {
+            'username': 'inactive-boxer', 'password': 'Password123!'
+        }, format='json')
+        self.assertEqual(denied_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        self.client.force_authenticate(user=self.admin_user)
+        active_response = self.client.patch(
+            reverse('athlete-detail', kwargs={'pk': athlete.pk}),
+            {'status': 'ACTIVE'},
+            format='json',
+        )
+        self.assertEqual(active_response.status_code, status.HTTP_200_OK)
+
+        inactive_user.refresh_from_db()
+        self.assertTrue(inactive_user.is_active)
+        self.client.force_authenticate(user=None)
+        login_response = self.client.post(reverse('login'), {
+            'username': 'inactive-boxer', 'password': 'Password123!'
+        }, format='json')
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
 
     def test_user_cannot_access_other_club_data(self):
         other_club = Club.objects.create(name='Otro Club', email='otro@test.com')

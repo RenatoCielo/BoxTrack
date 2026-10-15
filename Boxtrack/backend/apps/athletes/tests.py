@@ -48,6 +48,20 @@ class AthleteManagementTests(APITestCase):
         self.assertEqual(Athlete.objects.filter(club=self.club).count(), 1)
         self.assertEqual(response.data['first_name'], 'Carlos')
 
+    def test_zero_group_value_is_treated_as_empty_group(self):
+        self.client.force_authenticate(user=self.admin_user)
+        payload = {
+            'first_name': 'Mateo',
+            'last_name': 'Silva',
+            'group': 0,
+            'status': 'ACTIVE',
+        }
+
+        response = self.client.post(reverse('athlete-list-create'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(Athlete.objects.get(pk=response.data['id']).group)
+
     def test_block_athlete_from_other_club(self):
         other_group = Group.objects.create(club=self.other_club, name='Grupo B', schedule='Martes 18:00')
         athlete = Athlete.objects.create(
@@ -61,7 +75,7 @@ class AthleteManagementTests(APITestCase):
         self.client.force_authenticate(user=self.admin_user)
         response = self.client.get(reverse('athlete-detail', kwargs={'pk': athlete.pk}))
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_reject_invalid_athlete_phone(self):
         self.client.force_authenticate(user=self.admin_user)
@@ -72,6 +86,19 @@ class AthleteManagementTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_trainer_can_view_but_cannot_create_athlete(self):
+        assigned_athlete = Athlete.objects.create(
+            club=self.club,
+            first_name='Asignado',
+            last_name='Uno',
+            status='ACTIVE',
+            assigned_trainer=self.trainer_user,
+        )
+        Athlete.objects.create(
+            club=self.club,
+            first_name='No',
+            last_name='Asignado',
+            status='ACTIVE',
+        )
         self.client.force_authenticate(user=self.trainer_user)
 
         list_response = self.client.get(reverse('athlete-list-create'))
@@ -80,7 +107,21 @@ class AthleteManagementTests(APITestCase):
         }, format='json')
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row['id'] for row in list_response.data['results']], [assigned_athlete.pk])
         self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_trainer_cannot_open_unassigned_athlete_detail(self):
+        unassigned_athlete = Athlete.objects.create(
+            club=self.club,
+            first_name='No',
+            last_name='Asignado',
+            status='ACTIVE',
+        )
+        self.client.force_authenticate(user=self.trainer_user)
+
+        response = self.client.get(reverse('athlete-detail', kwargs={'pk': unassigned_athlete.pk}))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_trainer_cannot_update_athlete_profile(self):
         athlete = Athlete.objects.create(
@@ -88,6 +129,7 @@ class AthleteManagementTests(APITestCase):
             first_name='Ana',
             last_name='Rojas',
             status='ACTIVE',
+            assigned_trainer=self.trainer_user,
         )
         self.client.force_authenticate(user=self.trainer_user)
 
@@ -168,12 +210,14 @@ class AthleteManagementTests(APITestCase):
             last_name='Vera',
             status='ACTIVE',
             is_competitor=True,
+            assigned_trainer=self.trainer_user,
         )
         regular_athlete = Athlete.objects.create(
             club=self.club,
             first_name='Diego',
             last_name='Soto',
             status='ACTIVE',
+            assigned_trainer=self.trainer_user,
         )
         Competition.objects.create(club=self.club, athlete=competitor, result='WIN', fight_type='AMATEUR')
         Competition.objects.create(club=self.club, athlete=competitor, result='LOSS', fight_type='PRO')

@@ -3,7 +3,7 @@ from rest_framework import generics, permissions, filters
 
 from apps.athletes.models import Athlete
 from apps.athletes.serializers import AthleteSerializer
-from apps.common.permissions import ClubRolePermission
+from apps.common.permissions import ClubRolePermission, scope_to_assigned_athletes, user_role
 
 
 class ClubAthletePermission(ClubRolePermission):
@@ -28,6 +28,7 @@ class AthleteListCreateView(generics.ListCreateAPIView):
         competitor_filter = self.request.query_params.get('is_competitor')
         if competitor_filter in ('true', 'false'):
             queryset = queryset.filter(is_competitor=competitor_filter == 'true')
+        queryset = scope_to_assigned_athletes(queryset, user, athlete_lookup='')
         return queryset.order_by('last_name', 'first_name', 'id')
 
     def perform_create(self, serializer):
@@ -35,9 +36,15 @@ class AthleteListCreateView(generics.ListCreateAPIView):
 
 
 class AthleteDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Athlete.objects.select_related('club', 'group', 'assigned_trainer').all()
     serializer_class = AthleteSerializer
     permission_classes = [permissions.IsAuthenticated, ClubAthletePermission]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Athlete.objects.select_related('club', 'group', 'assigned_trainer')
+        if not user.is_superuser:
+            queryset = queryset.filter(club_id=user.club_id)
+        return scope_to_assigned_athletes(queryset, user, athlete_lookup='')
 
     def perform_update(self, serializer):
         athlete = serializer.save()

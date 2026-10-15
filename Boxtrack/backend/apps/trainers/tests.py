@@ -13,6 +13,7 @@ class TrainerManagementTests(APITestCase):
         self.club = Club.objects.create(name='Club Test', email='club@test.com')
         self.other_club = Club.objects.create(name='Otro Club', email='otro@test.com')
         self.admin_role = Role.objects.create(name='ADMIN', description='Administrador')
+        self.trainer_role = Role.objects.create(name='TRAINER', description='Entrenador')
         self.admin_user = User.objects.create_user(
             username='admin', email='admin@test.com', password='Password123!',
             club=self.club, role=self.admin_role
@@ -22,7 +23,8 @@ class TrainerManagementTests(APITestCase):
         self.client.force_authenticate(user=self.admin_user)
         payload = {
             'user': User.objects.create_user(
-                username='trainer1', email='trainer1@test.com', password='Password123!'
+                username='trainer1', email='trainer1@test.com', password='Password123!',
+                club=self.club, role=self.trainer_role
             ).id,
             'specialty': 'Preparación física',
             'experience_years': 5,

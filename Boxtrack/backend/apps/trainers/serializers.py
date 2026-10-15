@@ -14,5 +14,13 @@ class TrainerProfileSerializer(serializers.ModelSerializer):
         fields = ['id', 'club', 'user', 'user_name', 'user_username', 'specialty', 'experience_years', 'professional_title', 'bio', 'created_at', 'updated_at']
         read_only_fields = ['club', 'created_at', 'updated_at']
 
+    def validate_user(self, user):
+        request_user = self.context['request'].user
+        if user.club_id != request_user.club_id:
+            raise serializers.ValidationError('El entrenador debe pertenecer al mismo club.')
+        if not user.is_active or getattr(user.role, 'name', None) != 'TRAINER':
+            raise serializers.ValidationError('Selecciona una cuenta activa con rol de entrenador.')
+        return user
+
     def get_user_name(self, obj):
         return obj.user.get_full_name() or obj.user.username

@@ -48,6 +48,7 @@ class TrainingTests(APITestCase):
             start_time='18:00:00',
             duration_minutes=60,
             capacity=capacity,
+            trainer=self.trainer_user,
         )
 
     def test_create_training_for_same_club(self):
@@ -141,6 +142,7 @@ class TrainingTests(APITestCase):
             first_name='Pedro',
             last_name='Lopez',
             status='ACTIVE',
+            assigned_trainer=self.trainer_user,
         )
         self.client.force_authenticate(user=self.trainer_user)
         full_response = self.client.post(reservation_url, {'athlete': other_athlete.pk}, format='json')
@@ -207,3 +209,20 @@ class TrainingTests(APITestCase):
 
         self.assertEqual(visible_ids, {own_group_training.pk, general_training.pk})
         self.assertEqual(other_group_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_trainer_only_lists_and_manages_own_classes(self):
+        own_training = self.create_training()
+        other_trainer = User.objects.create_user(
+            username='other-trainer', email='other-trainer@test.com', password='Password123!',
+            club=self.club, role=self.trainer_role,
+        )
+        other_training = self.create_training()
+        other_training.trainer = other_trainer
+        other_training.save(update_fields=['trainer'])
+        self.client.force_authenticate(user=self.trainer_user)
+
+        response = self.client.get(reverse('training-list-create'))
+        detail_response = self.client.get(reverse('training-detail', kwargs={'pk': other_training.pk}))
+
+        self.assertEqual([row['id'] for row in response.data['results']], [own_training.pk])
+        self.assertEqual(detail_response.status_code, status.HTTP_403_FORBIDDEN)

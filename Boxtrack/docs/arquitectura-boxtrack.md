@@ -120,3 +120,22 @@ flowchart LR
 - La gestión de usuarios y clubes se resolverá con una estructura de autorización robusta desde el backend.
 - Cada entidad vinculada a un club deberá incluir una referencia explícita al club para garantizar aislamiento de datos.
 - Los dashboards y alertas se construirán desde datos reales, nunca valores artificiales.
+
+## Correr codigo
+
+- Terminal Frontend
+    - cd /d C:\Users\renat\Desktop\Boxtrack\Boxtrack\frontend
+    - npm install
+    - npm run dev
+
+- Terminal Backend
+    - cd /d C:\Users\renat\Desktop\Boxtrack\Boxtrack\backend
+    - manage.py migrate
+    - manage.py runserver
+
+
+## Subir a Github
+
+- git add .
+- git commit -m "nombre de commit"
+- git push

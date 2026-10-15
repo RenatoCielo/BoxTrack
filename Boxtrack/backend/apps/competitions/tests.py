@@ -60,3 +60,26 @@ class FightRecordTests(APITestCase):
         response = self.client.get(reverse('fight-record-list-create') + f'?athlete={self.other_athlete.id}')
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_trainer_only_lists_and_creates_fights_for_assigned_athletes(self):
+        unassigned_athlete = Athlete.objects.create(
+            club=self.club, first_name='No', last_name='Asignado', status='ACTIVE'
+        )
+        self.client.force_authenticate(user=self.trainer_user)
+        self.client.post(reverse('fight-record-list-create'), {
+            'athlete': self.athlete.pk,
+            'opponent_name': 'Rival',
+            'result': 'WIN',
+            'fight_type': 'AMATEUR',
+        }, format='json')
+
+        list_response = self.client.get(reverse('fight-record-list-create'))
+        create_response = self.client.post(reverse('fight-record-list-create'), {
+            'athlete': unassigned_athlete.pk,
+            'opponent_name': 'Otro rival',
+            'result': 'LOSS',
+            'fight_type': 'AMATEUR',
+        }, format='json')
+
+        self.assertEqual([row['athlete'] for row in list_response.data['results']], [self.athlete.pk])
+        self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)

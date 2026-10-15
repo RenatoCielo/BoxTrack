@@ -8,9 +8,16 @@ from apps.competitions.models import Competition
 from apps.groups.models import Group
 
 
+class ZeroToNullPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
+    def to_internal_value(self, data):
+        if data in (None, '', '0', 0):
+            return None
+        return super().to_internal_value(data)
+
+
 class AthleteSerializer(serializers.ModelSerializer):
-    assigned_trainer = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
-    group = serializers.PrimaryKeyRelatedField(queryset=Group.objects.all(), required=False, allow_null=True)
+    assigned_trainer = ZeroToNullPrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
+    group = ZeroToNullPrimaryKeyRelatedField(queryset=Group.objects.all(), required=False, allow_null=True)
     fight_record = serializers.SerializerMethodField()
 
     class Meta:
@@ -24,6 +31,7 @@ class AthleteSerializer(serializers.ModelSerializer):
         read_only_fields = ['club', 'created_at', 'updated_at']
 
     def validate(self, attrs):
+        request_user = self.context['request'].user
         phone = attrs.get('phone')
         normalized_phone = re.sub(r'[\s().-]', '', phone or '')
         if normalized_phone and not re.fullmatch(r'\+?[1-9]\d{7,14}', normalized_phone):
@@ -31,12 +39,21 @@ class AthleteSerializer(serializers.ModelSerializer):
         if phone is not None:
             attrs['phone'] = normalized_phone
         user = attrs.get('user')
-        if user and user.club_id != self.context['request'].user.club_id:
+        if user and user.club_id != request_user.club_id:
             raise serializers.ValidationError({'user': 'La cuenta debe pertenecer al mismo club.'})
         if user and getattr(user.role, 'name', None) != 'ATHLETE':
             raise serializers.ValidationError({'user': 'La cuenta vinculada debe tener rol de deportista.'})
         if user and Athlete.objects.filter(user=user).exclude(pk=getattr(self.instance, 'pk', None)).exists():
             raise serializers.ValidationError({'user': 'Esta cuenta ya tiene una ficha deportiva vinculada.'})
+        group = attrs.get('group', getattr(self.instance, 'group', None))
+        if group and group.club_id != request_user.club_id:
+            raise serializers.ValidationError({'group': 'El grupo debe pertenecer al mismo club del deportista.'})
+        trainer = attrs.get('assigned_trainer', getattr(self.instance, 'assigned_trainer', None))
+        if trainer:
+            if trainer.club_id != request_user.club_id:
+                raise serializers.ValidationError({'assigned_trainer': 'El entrenador debe pertenecer al mismo club.'})
+            if getattr(trainer.role, 'name', None) != 'TRAINER':
+                raise serializers.ValidationError({'assigned_trainer': 'La cuenta seleccionada no tiene rol de entrenador.'})
         if attrs.get('status') not in [choice[0] for choice in Athlete.STATUS_CHOICES]:
             raise serializers.ValidationError({'status': 'Estado no válido.'})
         return attrs

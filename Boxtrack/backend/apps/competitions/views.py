@@ -3,7 +3,7 @@ from rest_framework import generics, permissions
 from apps.athletes.models import Athlete
 from apps.competitions.models import Competition
 from apps.competitions.serializers import CompetitionSerializer, FightRecordSerializer
-from apps.common.permissions import StaffWritePermission
+from apps.common.permissions import StaffWritePermission, scope_to_assigned_athletes, user_role
 
 
 class ClubCompetitionPermission(permissions.BasePermission):
@@ -26,6 +26,7 @@ class FightRecordListCreateView(generics.ListCreateAPIView):
         athlete_id = self.request.query_params.get('athlete')
 
         queryset = Competition.objects.filter(club_id=user.club_id).select_related('athlete')
+        queryset = scope_to_assigned_athletes(queryset, user)
         if athlete_id:
             athlete = Athlete.objects.filter(id=athlete_id).first()
             if athlete is None:
@@ -39,6 +40,8 @@ class FightRecordListCreateView(generics.ListCreateAPIView):
         athlete = serializer.validated_data['athlete']
         if athlete.club_id != self.request.user.club_id:
             self.permission_denied(self.request, message='No tienes permisos para registrar peleas de este deportista.')
+        if user_role(self.request.user) == 'TRAINER' and athlete.assigned_trainer_id != self.request.user.id:
+            self.permission_denied(self.request, message='Solo puedes registrar combates de deportistas asignados a ti.')
         serializer.save(club=self.request.user.club)
 
 
@@ -49,7 +52,8 @@ class FightRecordDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        return Competition.objects.filter(club_id=user.club_id).select_related('athlete')
+        queryset = Competition.objects.filter(club_id=user.club_id).select_related('athlete')
+        return scope_to_assigned_athletes(queryset, user)
 
     def get_object(self):
         obj = super().get_object()

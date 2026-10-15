@@ -5,6 +5,22 @@ def user_role(user):
     return getattr(getattr(user, 'role', None), 'name', None)
 
 
+def club_is_approved(user):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    club = getattr(user, 'club', None)
+    return bool(club and club.is_active and club.verification_status == 'APPROVED')
+
+
+def scope_to_assigned_athletes(queryset, user, athlete_lookup='athlete'):
+    if user_role(user) != 'TRAINER':
+        return queryset
+    lookup = f'{athlete_lookup}__assigned_trainer_id' if athlete_lookup else 'assigned_trainer_id'
+    return queryset.filter(**{lookup: user.id})
+
+
 class ClubRolePermission(BasePermission):
     allowed_roles = ()
     write_roles = None
@@ -18,6 +34,8 @@ class ClubRolePermission(BasePermission):
             return True
         role = user_role(user)
         if role not in self.allowed_roles:
+            return False
+        if not club_is_approved(user) and not getattr(view, 'allow_unverified_club', False):
             return False
         if request.method in SAFE_METHODS or self.write_roles is None:
             return True

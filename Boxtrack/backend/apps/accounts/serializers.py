@@ -16,30 +16,89 @@ from apps.trainers.models import TrainerProfile
 class ClubSerializer(serializers.ModelSerializer):
     class Meta:
         model = Club
-        fields = ['id', 'name', 'description', 'address', 'phone', 'email', 'website', 'is_active']
+        fields = [
+            'id', 'name', 'legal_rut', 'legal_representative_name',
+            'legal_representative_rut', 'disciplines', 'verification_status',
+            'verification_note', 'description', 'address', 'phone', 'email',
+            'website', 'is_active'
+        ]
 
 
 class UserSerializer(serializers.ModelSerializer):
     club = ClubSerializer(read_only=True)
     role = serializers.SerializerMethodField()
+    is_superuser = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'club', 'is_active', 'must_change_password']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'club', 'is_active', 'must_change_password', 'is_superuser']
 
     def get_role(self, obj):
+        if obj.is_superuser:
+            return 'ADMIN'
         return obj.role.name if obj.role else None
 
 
 class RegisterSerializer(serializers.Serializer):
     club_name = serializers.CharField(max_length=200)
+    club_rut = serializers.CharField(max_length=20)
+    legal_representative_name = serializers.CharField(max_length=200)
+    legal_representative_rut = serializers.CharField(max_length=20)
     club_email = serializers.EmailField(required=False, allow_blank=True)
+    disciplines = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, validators=[validate_password])
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    @staticmethod
+    def _normalize_rut(value):
+        return re.sub(r'\s+', '', value or '').upper().replace('.', '').replace('-', '')
+
+    @staticmethod
+    def _valid_chilean_rut(value):
+        rut = RegisterSerializer._normalize_rut(value)
+        if len(rut) < 8 or len(rut) > 9:
+            return False
+        digits = rut[:-1]
+        verifier = rut[-1]
+        if not digits.isdigit() or not verifier.isdigit() and verifier not in 'Kk':
+            return False
+        total = 0
+        multiplier = 2
+        for char in reversed(digits):
+            total += int(char) * multiplier
+            multiplier = 2 if multiplier == 7 else multiplier + 1
+        remainder = total % 11
+        expected = 11 - remainder
+        if expected == 11:
+            check = '0'
+        elif expected == 10:
+            check = 'K'
+        else:
+            check = str(expected)
+        return check == verifier.upper()
+
+    def validate_club_rut(self, value):
+        normalized = self._normalize_rut(value)
+        if not self._valid_chilean_rut(normalized):
+            raise serializers.ValidationError('El RUT de la empresa no es válido.')
+        if Club.objects.filter(legal_rut__iexact=normalized).exists():
+            raise serializers.ValidationError('Este RUT ya está registrado en otra empresa.')
+        return normalized
+
+    def validate_legal_representative_rut(self, value):
+        normalized = self._normalize_rut(value)
+        if not self._valid_chilean_rut(normalized):
+            raise serializers.ValidationError('El RUT del representante legal no es válido.')
+        return normalized
 
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
@@ -53,7 +112,11 @@ class RegisterSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         club_name = validated_data.pop('club_name')
+        club_rut = validated_data.pop('club_rut')
+        representative_name = validated_data.pop('legal_representative_name')
+        representative_rut = validated_data.pop('legal_representative_rut')
         club_email = validated_data.pop('club_email', '')
+        disciplines = validated_data.pop('disciplines', [])
         username = validated_data.pop('username')
         email = validated_data.pop('email')
         password = validated_data.pop('password')
@@ -68,7 +131,12 @@ class RegisterSerializer(serializers.Serializer):
 
         club = Club.objects.create(
             name=club_name,
+            legal_rut=club_rut,
+            legal_representative_name=representative_name.strip(),
+            legal_representative_rut=representative_rut,
             email=club_email,
+            disciplines=[str(item).strip() for item in disciplines if str(item).strip()],
+            verification_status='PENDING',
             is_active=True,
         )
 

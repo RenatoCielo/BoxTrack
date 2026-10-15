@@ -48,13 +48,17 @@ class MeView(generics.RetrieveAPIView):
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def login_view(request):
-    username = request.data.get('username')
+    identifier = (request.data.get('username') or request.data.get('email') or '').strip()
     password = request.data.get('password')
 
-    if not username or not password:
-        return Response({'detail': 'Se requieren username y password.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not identifier or not password:
+        return Response({'detail': 'Ingresa tu nombre de usuario o correo y contraseña.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    user = User.objects.filter(username=username).first()
+    user = User.objects.filter(username__iexact=identifier).first()
+    if user is None:
+        matching_email_users = User.objects.filter(email__iexact=identifier).order_by('id')
+        if matching_email_users.count() == 1:
+            user = matching_email_users.first()
 
     if user is None or not user.check_password(password) or not user.is_active:
         return Response({'detail': 'Credenciales inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)

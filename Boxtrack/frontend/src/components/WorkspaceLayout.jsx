@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Activity, Bell, CalendarDays, Dumbbell, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, X,
-  Scale, Shield, Swords, Users, ClipboardCheck, Trophy, ShoppingBag
+  Scale, Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getErrorMessage } from '../services/api';
@@ -46,6 +46,7 @@ function PasswordDialog({ required, onClose }) {
 
 const navigation = [
   { to: '/dashboard', label: 'Resumen', icon: LayoutDashboard, roles: ['ADMIN', 'TRAINER'], end: true },
+  { to: '/global-admin', label: 'Clubes pendientes', icon: ShieldCheck, roles: ['ADMIN'] },
   { to: '/athletes', label: 'Deportistas', icon: Users, roles: ['ADMIN', 'TRAINER'] },
   { to: '/competitors', label: 'Boxeadores competidores', icon: Trophy, roles: ['ADMIN', 'TRAINER'] },
   { to: '/trainers', label: 'Entrenadores', icon: Shield, roles: ['ADMIN'] },
@@ -61,7 +62,13 @@ const navigation = [
   { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
 ];
 
-const visibleNavigation = (role) => navigation.filter((item) => item.roles.includes(role));
+const visibleNavigation = (user) => {
+  const role = user?.is_superuser ? 'ADMIN' : user?.role;
+  return navigation.filter((item) => {
+    if (item.to === '/global-admin') return Boolean(user?.is_superuser);
+    return item.roles.includes(role);
+  });
+};
 
 export function WorkspaceLayout() {
   const { user, logout } = useAuth();
@@ -89,7 +96,7 @@ export function WorkspaceLayout() {
         <div className="club-badge"><span className="club-dot" />{user?.club?.name || 'Mi club'}</div>
         <nav className="workspace-nav" aria-label="Navegación principal">
           <span className="nav-caption">GESTIÓN</span>
-          {visibleNavigation(user?.role).map(({ to, label, icon: Icon, end }) => (
+          {visibleNavigation(user).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <Icon size={17} strokeWidth={1.8} /><span>{label}</span>
             </NavLink>
@@ -117,7 +124,7 @@ export function WorkspaceLayout() {
       {mobileMenuOpen && <div className="mobile-nav-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setMobileMenuOpen(false); }}>
         <nav className="mobile-nav-drawer" aria-label="Navegación móvil">
           <div className="mobile-nav-heading"><span>{user?.club?.name || 'Mi club'}</span><button className="icon-button mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="Cerrar navegación"><X size={20} /></button></div>
-          <div className="mobile-nav-links">{visibleNavigation(user?.role).map(({ to, label, icon: Icon, end }) => (
+          <div className="mobile-nav-links">{visibleNavigation(user).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setMobileMenuOpen(false)} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <Icon size={18} strokeWidth={1.8} /><span>{label}</span>
             </NavLink>

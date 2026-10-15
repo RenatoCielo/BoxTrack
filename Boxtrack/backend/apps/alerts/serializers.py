@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from apps.alerts.models import Alert
 from apps.athletes.models import Athlete
+from apps.common.permissions import user_role
 
 
 class AlertSerializer(serializers.ModelSerializer):
@@ -16,6 +17,8 @@ class AlertSerializer(serializers.ModelSerializer):
     def validate_athlete(self, athlete):
         if athlete and athlete.club_id != self.context['request'].user.club_id:
             raise serializers.ValidationError('El deportista debe pertenecer a tu club.')
+        if athlete and user_role(self.context['request'].user) == 'TRAINER' and athlete.assigned_trainer_id != self.context['request'].user.id:
+            raise serializers.ValidationError('Solo puedes registrar alertas de deportistas asignados a ti.')
         return athlete
 
     def update(self, instance, validated_data):
