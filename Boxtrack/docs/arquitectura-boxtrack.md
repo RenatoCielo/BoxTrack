@@ -139,3 +139,23 @@ flowchart LR
 - git add .
 - git commit -m "nombre de commit"
 - git push
+
+
+## Correr en otra pc
+
+- Instalar Git, Python 3.11 o superior y Node.js 20.19+. Después, abrir PowerShell
+-   git clone <https://github.com/RenatoCielo/BoxTrack.git>
+    cd Boxtrack
+    Copy-Item .env.example .env
+
+    cd backend
+    py -3 -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
+    python manage.py migrate
+    python manage.py runserver
+
+    cd Boxtrack\frontend
+    npm install
+    npm run dev
