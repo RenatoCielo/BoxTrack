@@ -4,6 +4,8 @@ from django.db import models
 from django.utils import timezone
 import uuid
 
+from apps.common.models import SpanishSchemaModel
+
 
 def payment_proof_upload_path(instance, filename):
     extension = filename.rsplit('.', 1)[-1].lower()
@@ -14,16 +16,19 @@ def private_payment_proof_storage():
     return FileSystemStorage(location=settings.BASE_DIR / '.private_uploads')
 
 
-class StoreSettings(models.Model):
+class StoreSettings(SpanishSchemaModel):
     club = models.OneToOneField('clubs.Club', on_delete=models.CASCADE, related_name='store_settings')
     bank_transfer_instructions = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'configuracion_tienda'
 
     def __str__(self):
         return f'Configuración de tienda - {self.club.name}'
 
 
-class Product(models.Model):
+class Product(SpanishSchemaModel):
     CATEGORY_CHOICES = [
         ('GLOVES', 'Guantes'),
         ('WRAPS', 'Vendas'),
@@ -49,6 +54,7 @@ class Product(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'productos'
         ordering = ['category', 'name']
         constraints = [
             models.UniqueConstraint(fields=['club', 'sku'], condition=~models.Q(sku=''), name='unique_store_sku_per_club'),
@@ -59,7 +65,7 @@ class Product(models.Model):
         return self.name
 
 
-class Order(models.Model):
+class Order(SpanishSchemaModel):
     STATUS_CHOICES = [
         ('PENDING', 'Pendiente'),
         ('PAID', 'Pagada'),
@@ -99,6 +105,7 @@ class Order(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'pedidos'
         ordering = ['-created_at']
         indexes = [models.Index(fields=['club', 'status', 'created_at'])]
 
@@ -112,13 +119,16 @@ class Order(models.Model):
         self.proof_reviewed_at = timezone.now()
 
 
-class OrderItem(models.Model):
+class OrderItem(SpanishSchemaModel):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='order_items')
     product_name = models.CharField(max_length=160)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField()
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = 'detalle_pedidos'
 
     def __str__(self):
         return f'{self.quantity} x {self.product_name}'

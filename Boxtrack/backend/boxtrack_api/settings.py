@@ -1,14 +1,24 @@
 from pathlib import Path
 import os
 from datetime import timedelta
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / '.env')
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-me')
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+DEVELOPMENT_SECRET_KEY = 'boxtrack-local-development-secret-not-for-production-use'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', DEVELOPMENT_SECRET_KEY)
+JWT_SIGNING_KEY = os.getenv('JWT_SECRET_KEY', SECRET_KEY)
+
+if not DEBUG:
+    if not os.getenv('DJANGO_SECRET_KEY') or len(SECRET_KEY) < 50:
+        raise ImproperlyConfigured('Define DJANGO_SECRET_KEY con al menos 50 caracteres cuando DEBUG=False.')
+    if not os.getenv('JWT_SECRET_KEY') or len(JWT_SIGNING_KEY) < 32:
+        raise ImproperlyConfigured('Define JWT_SECRET_KEY con al menos 32 caracteres cuando DEBUG=False.')
+
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 INSTALLED_APPS = [
@@ -131,7 +141,7 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': os.getenv('JWT_ALGORITHM', 'HS256'),
-    'SIGNING_KEY': os.getenv('JWT_SECRET_KEY', 'dev-jwt-secret'),
+    'SIGNING_KEY': JWT_SIGNING_KEY,
 }
 
 CORS_ALLOWED_ORIGINS = [

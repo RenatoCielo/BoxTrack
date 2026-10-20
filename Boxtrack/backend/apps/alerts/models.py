@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Alert(models.Model):
+class Alert(SpanishSchemaModel):
     LEVEL_CHOICES = [
         ('INFO', 'Información'),
         ('WARNING', 'Advertencia'),
@@ -17,6 +18,9 @@ class Alert(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_resolved = models.BooleanField(default=False)
     resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'alertas'
 
     def __str__(self):
         return f'{self.title} - {self.level}'

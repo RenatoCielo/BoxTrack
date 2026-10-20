@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, CalendarDays, CheckCircle2, ClipboardCheck, Dumbbell, ShieldCheck, Users } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ClipboardCheck, Dumbbell, ShieldCheck, Users } from 'lucide-react';
 import { api, readCollection, getErrorMessage } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 
@@ -17,11 +17,10 @@ export function DashboardPage() {
     Promise.all([
       readCollection('/athletes/'),
       readCollection('/trainings/'),
-      readCollection('/attendance/'),
-      readCollection('/groups/')
-    ]).then(([athletes, trainings, attendance, groups]) => {
+      readCollection('/attendance/')
+    ]).then(([athletes, trainings, attendance]) => {
       if (!active) return;
-      setSummary({ athletes, trainings, attendance, groups });
+      setSummary({ athletes, trainings, attendance });
     }).catch(() => {
       if (active) setError('No fue posible cargar el resumen del club.');
     });
@@ -54,8 +53,7 @@ export function DashboardPage() {
   const cards = [
     { label: 'Deportistas activos', value: summary?.athletes.filter((item) => item.status === 'ACTIVE').length, icon: Users, tone: 'red' },
     { label: 'Clases programadas', value: summary?.trainings.filter((item) => item.status === 'SCHEDULED').length, icon: CalendarDays, tone: 'green' },
-    { label: 'Registros de asistencia', value: summary?.attendance.length, icon: ClipboardCheck, tone: 'blue' },
-    { label: 'Grupos activos', value: summary?.groups.filter((item) => item.is_active).length, icon: Activity, tone: 'yellow' }
+    { label: 'Registros de asistencia', value: summary?.attendance.length, icon: ClipboardCheck, tone: 'blue' }
   ];
   const upcoming = summary?.trainings
     .filter((item) => item.status === 'SCHEDULED')

@@ -67,6 +67,111 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(response.data['username'], 'adminuser')
         self.assertEqual(response.data['club']['name'], 'Club Test')
 
+        profile_response = self.client.get(reverse('profile'))
+        self.assertEqual(profile_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(profile_response.data['share_phone'])
+        self.assertFalse(profile_response.data['use_nickname'])
+
+    def test_user_can_update_profile_username_nickname_and_phone(self):
+        athlete_role = Role.objects.create(name='ATHLETE', description='Deportista')
+        athlete_user = User.objects.create_user(
+            username='profile-athlete',
+            email='profile-athlete@test.com',
+            password='Password123!',
+            role=athlete_role,
+            club=self.club,
+            phone='912345678',
+        )
+        athlete = Athlete.objects.create(
+            club=self.club,
+            user=athlete_user,
+            first_name='Nombre anterior',
+            last_name='Apellido anterior',
+            phone='912345678',
+        )
+        self.client.force_authenticate(user=athlete_user)
+
+        response = self.client.patch(reverse('profile'), {
+            'username': 'profile-boxer',
+            'email': 'new-profile@test.com',
+            'first_name': 'Nombre nuevo',
+            'last_name': 'Apellido nuevo',
+            'phone': '+56 9 8765 4321',
+            'nickname': 'El Tigre',
+            'use_nickname': True,
+            'share_phone': False,
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['display_name'], 'El Tigre')
+        self.assertEqual(response.data['phone'], '+56987654321')
+        athlete.refresh_from_db()
+        self.assertEqual(athlete.first_name, 'Nombre nuevo')
+        self.assertEqual(athlete.last_name, 'Apellido nuevo')
+        self.assertEqual(athlete.phone, '+56987654321')
+
+    def test_profile_rejects_case_insensitive_duplicate_username(self):
+        User.objects.create_user(
+            username='TakenName',
+            email='taken@test.com',
+            password='Password123!',
+            role=self.role_admin,
+            club=self.club,
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(reverse('profile'), {'username': 'TAKENNAME'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('username', response.data)
+
+    def test_profile_requires_nickname_when_enabled(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(reverse('profile'), {
+            'nickname': '',
+            'use_nickname': True,
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_private_phone_is_hidden_from_other_club_members(self):
+        athlete_role = Role.objects.create(name='ATHLETE', description='Deportista')
+        trainer_role = Role.objects.create(name='TRAINER', description='Entrenador')
+        athlete_user = User.objects.create_user(
+            username='private-athlete',
+            password='Password123!',
+            role=athlete_role,
+            club=self.club,
+            phone='+56912345678',
+            share_phone=False,
+        )
+        athlete = Athlete.objects.create(
+            club=self.club,
+            user=athlete_user,
+            first_name='Deportista',
+            last_name='Privado',
+            phone='+56912345678',
+        )
+        trainer = User.objects.create_user(
+            username='privacy-trainer',
+            password='Password123!',
+            role=trainer_role,
+            club=self.club,
+        )
+        athlete.assigned_trainer = trainer
+        athlete.save(update_fields=['assigned_trainer'])
+
+        self.client.force_authenticate(user=trainer)
+        trainer_response = self.client.get(reverse('athlete-list-create'))
+        private_row = next(row for row in trainer_response.data['results'] if row['id'] == athlete.pk)
+
+        self.assertEqual(private_row['phone'], '')
+        self.client.force_authenticate(user=self.admin_user)
+        admin_response = self.client.get(reverse('athlete-list-create'))
+        admin_row = next(row for row in admin_response.data['results'] if row['id'] == athlete.pk)
+        self.assertEqual(admin_row['phone'], '+56912345678')
+
     def test_existing_active_user_can_still_login(self):
         response = self.client.post(reverse('login'), {
             'username': 'adminuser',
@@ -189,6 +294,21 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(user.phone, '+56912345678')
         self.assertTrue(user.must_change_password)
         self.assertTrue(user.check_password(response.data['temporary_password']))
+
+    def test_admin_can_create_members_while_club_verification_is_pending(self):
+        self.club.verification_status = 'PENDING'
+        self.club.save(update_fields=['verification_status'])
+        self.client.force_authenticate(user=self.admin_user)
+
+        athlete_response = self.client.post(reverse('club-members'), {
+            'first_name': 'Ana', 'last_name': 'Rojas', 'role': 'ATHLETE'
+        }, format='json')
+        trainer_response = self.client.post(reverse('club-members'), {
+            'first_name': 'Luis', 'last_name': 'Vera', 'role': 'TRAINER'
+        }, format='json')
+
+        self.assertEqual(athlete_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(trainer_response.status_code, status.HTTP_201_CREATED)
 
     def test_duplicate_member_names_receive_unique_credentials(self):
         self.client.force_authenticate(user=self.admin_user)

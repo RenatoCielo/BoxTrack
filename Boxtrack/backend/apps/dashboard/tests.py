@@ -22,6 +22,14 @@ class DashboardSummaryTests(APITestCase):
             role=self.role_admin,
             club=self.club,
         )
+        self.role_athlete = Role.objects.create(name='ATHLETE', description='Deportista')
+        self.athlete_user = User.objects.create_user(
+            username='dashboard-athlete',
+            email='dashboard-athlete@club.com',
+            password='Password123!',
+            role=self.role_athlete,
+            club=self.club,
+        )
         self.group = Group.objects.create(club=self.club, name='Grupo principal', is_active=True)
         self.athlete = Athlete.objects.create(
             club=self.club,
@@ -64,3 +72,10 @@ class DashboardSummaryTests(APITestCase):
         self.assertEqual(response.data['trainings_scheduled'], 1)
         self.assertEqual(response.data['attendance_records'], 1)
         self.assertEqual(response.data['groups_active'], 1)
+
+    def test_athlete_cannot_view_staff_dashboard(self):
+        self.client.force_authenticate(user=self.athlete_user)
+
+        response = self.client.get(reverse('dashboard-summary'))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

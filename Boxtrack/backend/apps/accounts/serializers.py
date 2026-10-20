@@ -2,6 +2,7 @@ import re
 import secrets
 import string
 
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.utils.text import slugify
@@ -10,6 +11,7 @@ from rest_framework import serializers
 from apps.accounts.models import User, Role
 from apps.clubs.models import Club
 from apps.athletes.models import Athlete
+from apps.common.permissions import can_view_user_phone
 from apps.trainers.models import TrainerProfile
 
 
@@ -28,15 +30,85 @@ class UserSerializer(serializers.ModelSerializer):
     club = ClubSerializer(read_only=True)
     role = serializers.SerializerMethodField()
     is_superuser = serializers.BooleanField(read_only=True)
+    display_name = serializers.CharField(read_only=True)
+    phone = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'club', 'is_active', 'must_change_password', 'is_superuser']
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 'nickname',
+            'use_nickname', 'display_name', 'phone', 'role', 'club', 'is_active',
+            'must_change_password', 'is_superuser'
+        ]
+        read_only_fields = fields
 
     def get_role(self, obj):
         if obj.is_superuser:
             return 'ADMIN'
         return obj.role.name if obj.role else None
+
+    def get_phone(self, obj):
+        viewer = self.context.get('request')
+        return obj.phone if viewer and can_view_user_phone(obj, viewer.user) else ''
+
+
+class ProfileSerializer(UserSerializer):
+    username = serializers.CharField(
+        max_length=150,
+        validators=[UnicodeUsernameValidator()],
+    )
+    email = serializers.EmailField(required=False, allow_blank=True)
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    nickname = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    use_nickname = serializers.BooleanField(required=False)
+    share_phone = serializers.BooleanField(required=False)
+
+    class Meta(UserSerializer.Meta):
+        fields = [*UserSerializer.Meta.fields, 'share_phone']
+        read_only_fields = [
+            'id', 'display_name', 'role', 'club', 'is_active',
+            'must_change_password', 'is_superuser'
+        ]
+
+    def validate_username(self, value):
+        value = value.strip()
+        if User.objects.filter(username__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Este nombre de usuario ya está en uso.')
+        return value
+
+    def validate_email(self, value):
+        value = value.strip()
+        if value and User.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Este correo ya está registrado.')
+        return value
+
+    def validate_nickname(self, value):
+        return value.strip()
+
+    def validate_phone(self, value):
+        normalized = re.sub(r'[\s().-]', '', value)
+        if normalized and not re.fullmatch(r'\+?[1-9]\d{7,14}', normalized):
+            raise serializers.ValidationError('Ingresa un teléfono válido con código de país.')
+        return normalized
+
+    def validate(self, attrs):
+        use_nickname = attrs.get('use_nickname', self.instance.use_nickname)
+        nickname = attrs.get('nickname', self.instance.nickname).strip()
+        if use_nickname and not nickname:
+            raise serializers.ValidationError({'nickname': 'Escribe un apodo antes de mostrarlo en el club.'})
+        return attrs
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        user = super().update(instance, validated_data)
+        Athlete.objects.filter(user=user).update(
+            first_name=user.first_name,
+            last_name=user.last_name,
+            phone=user.phone,
+        )
+        return user
 
 
 class RegisterSerializer(serializers.Serializer):

@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Competition(models.Model):
+class Competition(SpanishSchemaModel):
     RESULT_CHOICES = [
         ('WIN', 'Victoria'),
         ('LOSS', 'Derrota'),
@@ -29,6 +30,7 @@ class Competition(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = 'competencias'
         ordering = ['-fight_date', '-competition_date', '-created_at']
         indexes = [
             models.Index(fields=['club', 'athlete']),

@@ -70,6 +70,38 @@ class TrainingTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Training.objects.filter(club=self.club).count(), 1)
 
+    def test_admin_can_create_groups_and_trainings_while_club_is_pending(self):
+        self.club.verification_status = 'PENDING'
+        self.club.save(update_fields=['verification_status'])
+        self.client.force_authenticate(user=self.admin_user)
+
+        group_response = self.client.post(reverse('group-list-create'), {
+            'name': 'Preparación inicial',
+            'schedule': 'Lunes 18:00',
+        }, format='json')
+        training_response = self.client.post(reverse('training-list-create'), {
+            'title': 'Boxeo técnico',
+            'group': group_response.data.get('id'),
+            'scheduled_date': '2026-10-10',
+            'start_time': '18:00:00',
+        }, format='json')
+
+        self.assertEqual(group_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(training_response.status_code, status.HTTP_201_CREATED)
+
+        self.client.force_authenticate(user=self.trainer_user)
+        trainer_group_response = self.client.post(reverse('group-list-create'), {
+            'name': 'Grupo no autorizado',
+        }, format='json')
+        trainer_training_response = self.client.post(reverse('training-list-create'), {
+            'title': 'Clase no autorizada',
+            'scheduled_date': '2026-10-10',
+            'start_time': '19:00:00',
+        }, format='json')
+
+        self.assertEqual(trainer_group_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(trainer_training_response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_cross_club_training_blocked(self):
         other_group = Group.objects.create(club=self.other_club, name='Grupo B', schedule='Martes 18:00')
         training = Training.objects.create(

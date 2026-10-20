@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Evaluation(models.Model):
+class Evaluation(SpanishSchemaModel):
     club = models.ForeignKey('clubs.Club', on_delete=models.CASCADE, related_name='evaluations')
     athlete = models.ForeignKey('athletes.Athlete', on_delete=models.CASCADE, related_name='evaluations')
     evaluator = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='evaluations_done')
@@ -20,6 +21,9 @@ class Evaluation(models.Model):
     next_goals = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'evaluaciones'
 
     def __str__(self):
         return f'{self.athlete} - {self.evaluation_date}'

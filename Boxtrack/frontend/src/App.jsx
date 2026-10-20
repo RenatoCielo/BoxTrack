@@ -6,9 +6,9 @@ import { DashboardPage } from './pages/DashboardPage';
 import { GlobalAdminPage } from './pages/GlobalAdminPage';
 import { ResourcePage } from './pages/ResourcePage';
 import { TrainingPage } from './pages/TrainingPage';
-import { ReportsPage } from './pages/ReportsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { StorePage } from './pages/StorePage';
+import { SettingsPage } from './pages/SettingsPage';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -27,16 +27,13 @@ function AppRoutes() {
         <Route path="/athletes" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="athletes" /> : <Navigate to="/trainings" replace />} />
         <Route path="/competitors" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="competitors" /> : <Navigate to="/trainings" replace />} />
         <Route path="/trainers" element={canAccess(['ADMIN']) ? <ResourcePage section="trainers" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/groups" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="groups" /> : <Navigate to="/trainings" replace />} />
         <Route path="/trainings" element={<TrainingPage />} />
         <Route path="/fights" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="fights" /> : <Navigate to="/trainings" replace />} />
         <Route path="/attendance" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="attendance" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/evaluations" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="evaluations" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/weight" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="weight" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/reports" element={canAccess(['ADMIN']) ? <ReportsPage /> : <Navigate to="/trainings" replace />} />
         <Route path="/alerts" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="alerts" /> : <Navigate to="/trainings" replace />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/store" element={<StorePage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="/" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
       <Route path="*" element={<Navigate to={user ? defaultPath : '/login'} replace />} />

@@ -1,19 +1,16 @@
-import csv
-import io
-
-from django.db.models import Q
 from rest_framework import permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from apps.athletes.models import Athlete
 from apps.attendance.models import Attendance
+from apps.common.permissions import StaffWritePermission
 from apps.groups.models import Group
 from apps.trainings.models import Training
 
 
 @api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
+@permission_classes([permissions.IsAuthenticated, StaffWritePermission])
 def dashboard_summary(request):
     user = request.user
     if user.is_superuser:

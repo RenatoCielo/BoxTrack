@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Athlete(models.Model):
+class Athlete(SpanishSchemaModel):
     GENDER_CHOICES = [
         ('M', 'Masculino'),
         ('F', 'Femenino'),
@@ -40,6 +41,7 @@ class Athlete(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'deportistas'
         indexes = [
             models.Index(fields=['club', 'status']),
             models.Index(fields=['group', 'assigned_trainer']),
@@ -47,3 +49,9 @@ class Athlete(models.Model):
 
     def __str__(self):
         return f'{self.first_name} {self.last_name}'
+
+    @property
+    def display_name(self):
+        if self.user_id:
+            return self.user.display_name
+        return str(self)

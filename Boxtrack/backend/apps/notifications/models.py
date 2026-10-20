@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Notification(models.Model):
+class Notification(SpanishSchemaModel):
     TYPE_CHOICES = [
         ('INFO', 'Información'),
         ('TRAINING', 'Entrenamiento'),
@@ -17,6 +18,9 @@ class Notification(models.Model):
     notification_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='INFO')
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notificaciones'
 
     def __str__(self):
         return f'{self.title} - {self.user}'

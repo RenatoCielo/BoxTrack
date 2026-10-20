@@ -48,7 +48,7 @@ class TrainingSerializer(serializers.ModelSerializer):
 
 
 class TrainingReservationSerializer(serializers.ModelSerializer):
-    athlete_name = serializers.CharField(source='athlete.__str__', read_only=True)
+    athlete_name = serializers.CharField(source='athlete.display_name', read_only=True)
 
     class Meta:
         model = TrainingReservation

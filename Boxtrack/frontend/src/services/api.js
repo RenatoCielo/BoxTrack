@@ -24,7 +24,8 @@ export async function readCollection(path) {
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('boxtrack.access');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const isAuthenticationRequest = /\/auth\/(?:login|register|refresh)\/?$/i.test(config.url || '');
+  if (token && !isAuthenticationRequest) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
@@ -33,7 +34,8 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const refreshToken = localStorage.getItem('boxtrack.refresh');
-    if (error.response?.status !== 401 || !refreshToken || originalRequest?._retried) {
+    const isAuthenticationRequest = /\/auth\/(?:login|register|refresh)\/?$/i.test(originalRequest?.url || '');
+    if (error.response?.status !== 401 || !refreshToken || originalRequest?._retried || isAuthenticationRequest) {
       return Promise.reject(error);
     }
 
@@ -56,7 +58,21 @@ api.interceptors.response.use(
 export function getErrorMessage(error) {
   const data = error.response?.data;
   if (!data) return 'No se pudo conectar con el servidor. Comprueba que el backend esté iniciado.';
-  if (typeof data.detail === 'string') return data.detail;
-  const firstError = Object.values(data).flat()[0];
-  return typeof firstError === 'string' ? firstError : 'Revisa los datos e inténtalo nuevamente.';
+  const fallback = 'Revisa los datos e inténtalo nuevamente.';
+  const isHtml = (value) => typeof value === 'string' && /^\s*</.test(value);
+  if (typeof data === 'string') {
+    return isHtml(data)
+      ? 'El servidor devolvió una página de error. Reinicia el backend y comprueba que esté usando la base de datos actualizada.'
+      : data;
+  }
+  if (typeof data.detail === 'string') {
+    return isHtml(data.detail)
+      ? 'El servidor devolvió una página de error. Reinicia el backend y comprueba que esté usando la base de datos actualizada.'
+      : data.detail;
+  }
+  const messages = Object.values(data).flat(Infinity).filter((value) => typeof value === 'string');
+  if (messages.some(isHtml)) {
+    return 'El servidor devolvió una página de error. Reinicia el backend y comprueba que esté usando la base de datos actualizada.';
+  }
+  return messages[0] || fallback;
 }

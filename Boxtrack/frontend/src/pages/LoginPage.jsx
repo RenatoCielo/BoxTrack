@@ -95,14 +95,19 @@ export function LoginPage() {
               <label><span>RUT del representante</span><input required name="legal_representative_rut" value={values.legal_representative_rut} onChange={update} placeholder="12.345.678-5" autoComplete="off" /></label>
             </div>
             <label><span>Correo del club <small>Opcional</small></span><input type="email" name="club_email" value={values.club_email} onChange={update} /></label>
-            <fieldset className="discipline-fieldset">
-              <legend>Disciplinas del gimnasio</legend>
+            <details className="discipline-picker">
+              <summary>
+                <span>Disciplinas del gimnasio</span>
+                <span className="discipline-selection">
+                  {values.disciplines.length ? `${values.disciplines.length} seleccionada${values.disciplines.length === 1 ? '' : 's'}` : 'Opcional'}
+                </span>
+              </summary>
               <div className="discipline-options">{clubDisciplines.map((discipline) => <label className="checkbox-control" key={discipline}>
                 <input type="checkbox" checked={values.disciplines.includes(discipline)} onChange={(event) => toggleDiscipline(discipline, event.target.checked)} />
                 <span>{discipline}</span>
               </label>)}</div>
               {values.disciplines.includes('Otra disciplina') && <input className="control custom-discipline-input" value={customDiscipline} onChange={(event) => setCustomDiscipline(event.target.value)} placeholder="Escribe otra disciplina" aria-label="Otra disciplina" />}
-            </fieldset>
+            </details>
             <div className="form-row">
               <label><span>Nombre</span><input name="first_name" value={values.first_name} onChange={update} autoComplete="given-name" /></label>
               <label><span>Apellido</span><input name="last_name" value={values.last_name} onChange={update} autoComplete="family-name" /></label>

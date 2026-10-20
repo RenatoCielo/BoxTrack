@@ -9,6 +9,7 @@ from apps.accounts.models import User
 from apps.accounts.serializers import (
     ChangePasswordSerializer,
     ClubMemberCreateSerializer,
+    ProfileSerializer,
     RegisterSerializer,
     UserSerializer,
 )
@@ -27,7 +28,7 @@ class RegisterView(generics.CreateAPIView):
 
         return Response(
             {
-                'user': UserSerializer(user).data,
+                'user': ProfileSerializer(user, context={'request': request}).data,
                 'tokens': {
                     'refresh': str(refresh),
                     'access': str(refresh.access_token),
@@ -38,8 +39,17 @@ class RegisterView(generics.CreateAPIView):
 
 
 class MeView(generics.RetrieveAPIView):
-    serializer_class = UserSerializer
+    serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'patch', 'head', 'options']
 
     def get_object(self):
         return self.request.user
@@ -67,7 +77,7 @@ def login_view(request):
 
     return Response(
         {
-            'user': UserSerializer(user).data,
+            'user': ProfileSerializer(user, context={'request': request}).data,
             'tokens': {
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
@@ -89,7 +99,7 @@ class ClubMemberListCreateView(APIView):
     def get(self, request):
         self.check_club_admin(request)
         users = User.objects.filter(club_id=request.user.club_id).select_related('club', 'role')
-        return Response(UserSerializer(users, many=True).data)
+        return Response(UserSerializer(users, many=True, context={'request': request}).data)
 
     def post(self, request):
         self.check_club_admin(request)
@@ -98,7 +108,7 @@ class ClubMemberListCreateView(APIView):
         user, profile, temporary_password = serializer.save(club=request.user.club)
         return Response(
             {
-                'user': UserSerializer(user).data,
+                'user': UserSerializer(user, context={'request': request}).data,
                 'profile_id': profile.pk,
                 'temporary_password': temporary_password,
             },

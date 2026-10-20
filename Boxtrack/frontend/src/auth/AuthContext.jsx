@@ -3,6 +3,10 @@ import { api } from '../services/api';
 
 const AuthContext = createContext(null);
 
+function getSavedTheme() {
+  return localStorage.getItem('boxtrack.theme') === 'dark' ? 'dark' : 'light';
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
@@ -12,6 +16,12 @@ export function AuthProvider({ children }) {
     }
   });
   const [loading, setLoading] = useState(Boolean(localStorage.getItem('boxtrack.access')));
+  const [theme, setTheme] = useState(getSavedTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('boxtrack.theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     let active = true;
@@ -21,7 +31,7 @@ export function AuthProvider({ children }) {
     window.addEventListener('boxtrack:session-expired', onExpired);
 
     if (localStorage.getItem('boxtrack.access')) {
-      api.get('/auth/me/')
+      api.get('/auth/profile/')
         .then(({ data }) => {
           if (active) {
             setUser(data);
@@ -61,6 +71,13 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  const updateProfile = async (values) => {
+    const { data } = await api.patch('/auth/profile/', values);
+    setUser(data);
+    localStorage.setItem('boxtrack.user', JSON.stringify(data));
+    return data;
+  };
+
   const changePassword = async (currentPassword, newPassword) => {
     await api.post('/auth/password/', {
       current_password: currentPassword,
@@ -79,7 +96,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, changePassword, logout }}>
+    <AuthContext.Provider value={{ user, loading, theme, setTheme, login, register, updateProfile, changePassword, logout }}>
       {children}
     </AuthContext.Provider>
   );

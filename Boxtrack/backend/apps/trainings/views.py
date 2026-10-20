@@ -82,7 +82,7 @@ class TrainingReservationListCreateView(APIView):
     def get(self, request, training_id):
         training = self.get_training(request, training_id)
         role_name = getattr(getattr(request.user, 'role', None), 'name', None)
-        reservations = TrainingReservation.objects.filter(training=training, status='RESERVED')
+        reservations = TrainingReservation.objects.filter(training=training, status='RESERVED').select_related('athlete', 'athlete__user')
         if role_name == 'ATHLETE':
             athlete = get_object_or_404(Athlete, user=request.user, club=training.club)
             if training.group_id is not None and training.group_id != athlete.group_id:
@@ -143,7 +143,7 @@ class TrainingReservationCancelView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, training_id, reservation_id):
-        queryset = TrainingReservation.objects.select_related('training', 'athlete')
+        queryset = TrainingReservation.objects.select_related('training', 'athlete', 'athlete__user')
         if not request.user.is_superuser:
             queryset = queryset.filter(training__club_id=request.user.club_id)
         if user_role(request.user) == 'TRAINER':

@@ -22,9 +22,9 @@ class AthleteListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser:
-            queryset = Athlete.objects.select_related('club', 'group', 'assigned_trainer').all()
+            queryset = Athlete.objects.select_related('club', 'user', 'group', 'assigned_trainer').all()
         else:
-            queryset = Athlete.objects.filter(club_id=user.club_id).select_related('club', 'group', 'assigned_trainer')
+            queryset = Athlete.objects.filter(club_id=user.club_id).select_related('club', 'user', 'group', 'assigned_trainer')
         competitor_filter = self.request.query_params.get('is_competitor')
         if competitor_filter in ('true', 'false'):
             queryset = queryset.filter(is_competitor=competitor_filter == 'true')
@@ -41,7 +41,7 @@ class AthleteDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = Athlete.objects.select_related('club', 'group', 'assigned_trainer')
+        queryset = Athlete.objects.select_related('club', 'user', 'group', 'assigned_trainer')
         if not user.is_superuser:
             queryset = queryset.filter(club_id=user.club_id)
         return scope_to_assigned_athletes(queryset, user, athlete_lookup='')

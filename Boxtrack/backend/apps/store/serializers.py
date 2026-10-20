@@ -45,7 +45,7 @@ class OrderSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_buyer_name(self, order):
-        return order.user.get_full_name() or order.user.username
+        return order.user.display_name
 
     def get_has_payment_proof(self, order):
         return bool(order.payment_proof)

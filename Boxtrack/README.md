@@ -104,8 +104,8 @@ Boxtrack/
 
 ## Requisitos
 
-- Python 3.11+
-- Node.js 18+
+- Python 3.11–3.12 (Django 5.0)
+- Node.js 20.19+ o 22.12+ (Vite 8)
 - MySQL 8.0+
 - VS Code con extensiones de Python y JavaScript
 
@@ -114,10 +114,12 @@ Boxtrack/
 1. Crear entorno virtual de Python.
 2. Instalar dependencias del backend.
 3. Configurar variables de entorno desde .env.example.
-4. Crear base de datos MySQL.
+4. Para desarrollo local, SQLite queda habilitado por defecto. Para usar MySQL, configurar sus credenciales y establecer `USE_SQLITE_FALLBACK=False` en `.env`.
 5. Ejecutar migraciones.
 6. Instalar dependencias del frontend.
 7. Ejecutar backend y frontend.
+
+En desarrollo local, DB Browser puede abrir `backend/db.sqlite3`. Ejecuta `python manage.py migrate` desde `backend` para crear o actualizar el esquema; las tablas y columnas de negocio se muestran en español. Las tablas internas de Django conservan sus nombres estándar.
 
 ## Tienda del gimnasio
 

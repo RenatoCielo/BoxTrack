@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Training(models.Model):
+class Training(SpanishSchemaModel):
     ACTIVITY_TYPES = [
         ('TECHNICAL', 'Técnica'),
         ('TACTICAL', 'Táctica'),
@@ -32,11 +33,14 @@ class Training(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'clases'
+
     def __str__(self):
         return f'{self.title} - {self.scheduled_date}'
 
 
-class TrainingReservation(models.Model):
+class TrainingReservation(SpanishSchemaModel):
     STATUS_CHOICES = [
         ('RESERVED', 'Reservado'),
         ('CANCELLED', 'Cancelado'),
@@ -49,6 +53,7 @@ class TrainingReservation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'reservas_clases'
         constraints = [
             models.UniqueConstraint(fields=['training', 'athlete'], name='unique_training_athlete_reservation'),
         ]

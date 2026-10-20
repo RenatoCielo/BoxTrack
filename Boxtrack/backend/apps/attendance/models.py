@@ -1,7 +1,8 @@
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
-class Attendance(models.Model):
+class Attendance(SpanishSchemaModel):
     STATUS_CHOICES = [
         ('PRESENT', 'Presente'),
         ('ABSENT', 'Ausente'),
@@ -17,6 +18,7 @@ class Attendance(models.Model):
     notes = models.TextField(blank=True)
 
     class Meta:
+        db_table = 'asistencias'
         unique_together = ('athlete', 'training')
         indexes = [
             models.Index(fields=['club', 'status']),

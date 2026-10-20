@@ -23,4 +23,4 @@ class TrainerProfileSerializer(serializers.ModelSerializer):
         return user
 
     def get_user_name(self, obj):
-        return obj.user.get_full_name() or obj.user.username
+        return obj.user.display_name

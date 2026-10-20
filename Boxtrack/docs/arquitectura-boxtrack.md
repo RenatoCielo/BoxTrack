@@ -21,6 +21,7 @@ flowchart LR
 - Rutas protegidas por rol
 - Componentes reutilizables para cards, tables, forms y charts
 - Diseño mobile-first con menú lateral en desktop
+- Configuración de perfil, apodo visible, privacidad del teléfono y tema claro/oscuro
 - Recharts para estadísticas y evolución deportiva
 - Lucide para iconografía
 - Axios para consumo de API
@@ -33,6 +34,7 @@ flowchart LR
 - Modelos por dominio para aislar responsabilidades
 - Permisos por club y por rol
 - Validaciones en servidor y middlewares de seguridad
+- Preferencias de perfil servidas por `GET/PATCH /api/auth/profile/`; el teléfono se oculta en las fichas de otros miembros cuando su dueño desactiva el uso compartido
 
 ## 5. Base de datos
 
@@ -41,6 +43,20 @@ flowchart LR
 - Relación obligatoria entre usuarios, clubes y roles
 - Aislamiento por club para evitar fuga de información
 - Índices sobre búsquedas frecuentes y relaciones clave
+- Las tablas y columnas de negocio usan nombres físicos en español en SQLite y MySQL; los nombres internos de Django se conservan para no romper autenticación y permisos.
+
+### Tablas de negocio en DB Browser
+
+| Área | Tablas |
+| --- | --- |
+| Cuentas y clubes | `roles`, `usuarios`, `clubes` |
+| Plantel | `deportistas`, `perfiles_entrenadores`, `grupos` |
+| Clases y seguimiento | `clases`, `reservas_clases`, `asistencias`, `evaluaciones`, `registros_peso`, `competencias`, `alertas`, `notificaciones` |
+| Tienda | `configuracion_tienda`, `productos`, `pedidos`, `detalle_pedidos` |
+
+Las columnas también se guardan en español, por ejemplo `usuarios.nombre_usuario`, `deportistas.fecha_nacimiento`, `clases.fecha_programada` y `pedidos.estado`. En las relaciones, `id_club`, `id_deportista` e `id_usuario` identifican claves foráneas. `id` se mantiene como identificador primario.
+
+Las tablas de infraestructura como `django_migrations`, `django_content_type`, las tablas de sesiones/permisos y las tablas intermedias de permisos de usuario conservan sus nombres estándar de Django. No deben renombrarse ni editarse directamente. Para que el esquema quede actualizado, ejecutar `python manage.py migrate` antes de abrir o volver a cargar `backend/db.sqlite3` en DB Browser.
 
 ## 6. Modelos esperados
 
@@ -76,7 +92,8 @@ flowchart LR
 - Los permisos se validan en la API; ocultar una opción en el frontend no sustituye la autorización del backend.
 - Validación que un club no acceda a otra base de datos
 - Protección de rutas en frontend y backend
-- Enmascaramiento de datos sensibles
+- Privacidad del teléfono configurable por usuario; el propio usuario y los administradores de su club pueden verlo
+- El apodo solo reemplaza el nombre visible cuando el usuario activa esa preferencia; se conservan los nombres legales en la ficha
 - Auditoría de acciones relevantes
 
 ## 8. Plan de desarrollo recomendado
@@ -130,8 +147,8 @@ flowchart LR
 
 - Terminal Backend
     - cd /d C:\Users\renat\Desktop\Boxtrack\Boxtrack\backend
-    - manage.py migrate
-    - manage.py runserver
+    - python manage.py migrate
+    - python manage.py runserver
 
 
 ## Subir a Github
@@ -143,19 +160,25 @@ flowchart LR
 
 ## Correr en otra pc
 
-- Instalar Git, Python 3.11 o superior y Node.js 20.19+. Después, abrir PowerShell
+- Instalar Git, Python 3.11–3.12 y Node.js 20.19+ o 22.12+. Después, abrir PowerShell
 -   git clone <https://github.com/RenatoCielo/BoxTrack.git>
     cd Boxtrack
     Copy-Item .env.example .env
 
+Para desarrollo local se usa SQLite por defecto. Para conectarse a MySQL, configura sus credenciales en `.env` y establece `USE_SQLITE_FALLBACK=False`.
+
+En una terminal para el backend:
+
     cd backend
-    py -3 -m venv .venv
+    py -3.12 -m venv .venv
     .\.venv\Scripts\Activate.ps1
     python -m pip install --upgrade pip
     pip install -r requirements.txt
     python manage.py migrate
     python manage.py runserver
 
-    cd Boxtrack\frontend
+En otra terminal, desde la carpeta raíz del proyecto:
+
+    cd frontend
     npm install
     npm run dev

@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.db import models
 
+from apps.common.models import SpanishSchemaModel
 
 def private_verification_storage():
     return FileSystemStorage(location=settings.BASE_DIR / '.private_uploads' / 'club-verification')
@@ -14,7 +15,7 @@ def club_verification_upload_path(instance, filename):
     return f'{instance.pk}/{uuid.uuid4().hex}.{extension}'
 
 
-class Club(models.Model):
+class Club(SpanishSchemaModel):
     VERIFICATION_STATUS_CHOICES = [
         ('PENDING', 'Pendiente de documentos'),
         ('IN_REVIEW', 'En revisión'),
@@ -45,6 +46,7 @@ class Club(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = 'clubes'
         constraints = [
             models.UniqueConstraint(fields=['legal_rut'], condition=~models.Q(legal_rut=''), name='unique_nonblank_club_legal_rut'),
         ]

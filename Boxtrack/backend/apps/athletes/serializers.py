@@ -6,6 +6,7 @@ from apps.accounts.models import User
 from apps.athletes.models import Athlete
 from apps.competitions.models import Competition
 from apps.groups.models import Group
+from apps.common.permissions import can_view_user_phone
 
 
 class ZeroToNullPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
@@ -19,11 +20,13 @@ class AthleteSerializer(serializers.ModelSerializer):
     assigned_trainer = ZeroToNullPrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
     group = ZeroToNullPrimaryKeyRelatedField(queryset=Group.objects.all(), required=False, allow_null=True)
     fight_record = serializers.SerializerMethodField()
+    display_name = serializers.CharField(read_only=True)
+    phone = serializers.SerializerMethodField()
 
     class Meta:
         model = Athlete
         fields = [
-            'id', 'club', 'user', 'first_name', 'last_name', 'photo', 'birth_date', 'phone',
+            'id', 'club', 'user', 'first_name', 'last_name', 'display_name', 'photo', 'birth_date', 'phone',
             'emergency_contact', 'admission_date', 'status', 'is_competitor', 'fight_record', 'assigned_trainer',
             'group', 'category', 'registered_weight', 'guard', 'experience',
             'observations', 'created_at', 'updated_at'
@@ -64,3 +67,9 @@ class AthleteSerializer(serializers.ModelSerializer):
         losses = sum(result == 'LOSS' for result in results)
         draws = sum(result == 'DRAW' for result in results)
         return f'{wins}-{losses}-{draws}'
+
+    def get_phone(self, athlete):
+        request = self.context.get('request')
+        if athlete.user_id and request and not can_view_user_phone(athlete.user, request.user):
+            return ''
+        return athlete.phone

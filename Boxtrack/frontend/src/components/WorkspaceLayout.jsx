@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  Activity, Bell, CalendarDays, Dumbbell, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, X,
-  Scale, Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag
+  Bell, CalendarDays, KeyRound, LayoutDashboard, LogOut, Menu, Settings, X,
+  Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag, TriangleAlert
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getErrorMessage } from '../services/api';
@@ -50,16 +50,13 @@ const navigation = [
   { to: '/athletes', label: 'Deportistas', icon: Users, roles: ['ADMIN', 'TRAINER'] },
   { to: '/competitors', label: 'Boxeadores competidores', icon: Trophy, roles: ['ADMIN', 'TRAINER'] },
   { to: '/trainers', label: 'Entrenadores', icon: Shield, roles: ['ADMIN'] },
-  { to: '/groups', label: 'Grupos', icon: Activity, roles: ['ADMIN', 'TRAINER'] },
   { to: '/trainings', label: 'Clases y cupos', icon: CalendarDays, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck, roles: ['ADMIN', 'TRAINER'] },
   { to: '/fights', label: 'Historial de combates', icon: Swords, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/evaluations', label: 'Evaluaciones', icon: Dumbbell, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/weight', label: 'Control de peso', icon: Scale, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/alerts', label: 'Alertas', icon: Bell, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/reports', label: 'Reportes', icon: FileSpreadsheet, roles: ['ADMIN'] },
+  { to: '/alerts', label: 'Alertas', icon: TriangleAlert, roles: ['ADMIN', 'TRAINER'] },
   { to: '/notifications', label: 'Notificaciones', icon: Bell, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
-  { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
+  { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
+  { to: '/settings', label: 'Configuración', icon: Settings, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
 ];
 
 const visibleNavigation = (user) => {
@@ -75,16 +72,27 @@ export function WorkspaceLayout() {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(Boolean(user?.must_change_password));
-  const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username;
+  const fullName = user?.display_name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username;
 
   useEffect(() => {
     if (user?.must_change_password) setPasswordDialogOpen(true);
   }, [user?.must_change_password]);
 
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const signOut = () => {
+    setMobileMenuOpen(false);
+    setLogoutDialogOpen(true);
+  };
+  const confirmSignOut = () => {
+    setLogoutDialogOpen(false);
     logout();
     navigate('/login', { replace: true });
   };
+  const tabLabels = { '/dashboard': 'Resumen', '/athletes': 'Alumnos', '/trainings': 'Clases', '/store': 'Tienda', '/notifications': 'Avisos' };
+  const mobileTabs = ['/dashboard', '/athletes', '/trainings', '/store', '/notifications']
+    .map((path) => visibleNavigation(user).find(({ to }) => to === path))
+    .filter(Boolean)
+    .slice(0, 4);
 
   return (
     <div className="workspace-shell">
@@ -118,6 +126,9 @@ export function WorkspaceLayout() {
           </button>
           <div className="mobile-brand"><span className="brand-mark">BX</span><strong>BOXTRACK</strong></div>
           <div className="topbar-club">{user?.club?.name || 'Mi club'}</div>
+          <NavLink to="/settings" className={({ isActive }) => `icon-button settings-shortcut${isActive ? ' active' : ''}`} aria-label="Abrir configuración" title="Configuración">
+            <Settings size={20} />
+          </NavLink>
         </header>
         <main className="workspace-content"><Outlet /></main>
       </div>
@@ -131,6 +142,27 @@ export function WorkspaceLayout() {
           ))}</div>
           <div className="mobile-nav-account"><span className="user-avatar">{(fullName || 'B').slice(0, 1).toUpperCase()}</span><div className="user-meta"><strong>{fullName}</strong><small>{user?.role || 'Usuario'}</small></div><button className="icon-button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={18} /></button><button className="icon-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
         </nav>
+      </div>}
+      <nav className="bottom-tabbar" aria-label="Navegación rápida">
+        {mobileTabs.map(({ to, icon: Icon, end }) => (
+          <NavLink key={to} to={to} end={end} className={({ isActive }) => `bottom-tab${isActive ? ' active' : ''}`}>
+            <Icon size={22} strokeWidth={1.9} /><span>{tabLabels[to]}</span>
+          </NavLink>
+        ))}
+        <button type="button" className={`bottom-tab${mobileMenuOpen ? ' active' : ''}`} onClick={() => setMobileMenuOpen((open) => !open)} aria-expanded={mobileMenuOpen}>
+          <Menu size={22} strokeWidth={1.9} /><span>Más</span>
+        </button>
+      </nav>
+      {logoutDialogOpen && <div className="modal-scrim confirm-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setLogoutDialogOpen(false); }}>
+        <section className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="logout-title" aria-describedby="logout-text">
+          <span className="confirm-icon"><LogOut size={24} /></span>
+          <h2 id="logout-title">¿Cerrar sesión?</h2>
+          <p id="logout-text">Tendrás que ingresar de nuevo para volver a usar BOXTRACK.</p>
+          <div className="confirm-actions">
+            <button type="button" className="button button-secondary" onClick={() => setLogoutDialogOpen(false)} autoFocus>Cancelar</button>
+            <button type="button" className="button primary-btn" onClick={confirmSignOut}>Sí, cerrar sesión</button>
+          </div>
+        </section>
       </div>}
       {passwordDialogOpen && <PasswordDialog required={Boolean(user?.must_change_password)} onClose={() => setPasswordDialogOpen(false)} />}
     </div>

@@ -159,6 +159,18 @@ class StoreTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['payment_method'], 'BANK_TRANSFER')
 
+    def test_admin_can_upload_proof_for_own_transfer_order(self):
+        self.client.force_authenticate(user=self.admin)
+        order_response = self.client.post(reverse('store-orders'), {
+            'payment_method': 'BANK_TRANSFER',
+            'items': [{'product': self.product.pk, 'quantity': 1}],
+        }, format='json')
+        upload_response = self.upload_sample_proof(order_response.data['id'])
+
+        self.assertEqual(order_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(upload_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(upload_response.data['proof_status'], 'SUBMITTED')
+
     def create_transfer_order(self):
         self.client.force_authenticate(user=self.athlete)
         response = self.client.post(reverse('store-orders'), {

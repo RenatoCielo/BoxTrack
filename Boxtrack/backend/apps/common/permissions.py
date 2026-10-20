@@ -21,6 +21,16 @@ def scope_to_assigned_athletes(queryset, user, athlete_lookup='athlete'):
     return queryset.filter(**{lookup: user.id})
 
 
+def can_view_user_phone(target_user, viewer):
+    if not viewer or not viewer.is_authenticated:
+        return False
+    if target_user.pk == viewer.pk or viewer.is_superuser:
+        return True
+    if target_user.club_id == viewer.club_id and user_role(viewer) == 'ADMIN':
+        return True
+    return target_user.share_phone
+
+
 class ClubRolePermission(BasePermission):
     allowed_roles = ()
     write_roles = None
@@ -36,7 +46,15 @@ class ClubRolePermission(BasePermission):
         if role not in self.allowed_roles:
             return False
         if not club_is_approved(user) and not getattr(view, 'allow_unverified_club', False):
-            return False
+            club = getattr(user, 'club', None)
+            can_manage_pending_club = (
+                role == 'ADMIN'
+                and club
+                and club.is_active
+                and club.verification_status in ('PENDING', 'IN_REVIEW', 'NEEDS_INFO')
+            )
+            if not can_manage_pending_club:
+                return False
         if request.method in SAFE_METHODS or self.write_roles is None:
             return True
         return role in self.write_roles
