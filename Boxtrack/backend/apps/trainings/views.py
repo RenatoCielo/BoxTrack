@@ -19,8 +19,22 @@ class ClubTrainingPermission(ClubRolePermission):
     write_roles = ('ADMIN', 'TRAINER')
     message = 'Solo el equipo del club puede programar o modificar clases.'
 
+    def has_permission(self, request, view):
+        user = request.user
+        if (
+            user and user.is_authenticated and request.method in permissions.SAFE_METHODS
+            and user_role(user) == 'ATHLETE' and user.club_id and user.club.is_active
+        ):
+            # Los deportistas deben ver la agenda aunque el club aún esté en verificación.
+            return True
+        return super().has_permission(request, view)
+
     def has_object_permission(self, request, view, obj):
-        if not super().has_object_permission(request, view, obj):
+        if not self.has_permission(request, view):
+            return False
+        if request.user.is_superuser:
+            return True
+        if obj.club_id != request.user.club_id:
             return False
         if user_role(request.user) == 'TRAINER' and obj.trainer_id != request.user.id:
             return False

@@ -102,6 +102,18 @@ class TrainingTests(APITestCase):
         self.assertEqual(trainer_group_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(trainer_training_response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_athlete_sees_classes_while_club_is_pending(self):
+        self.club.verification_status = 'PENDING'
+        self.club.save(update_fields=['verification_status'])
+        training = self.create_training()
+
+        self.client.force_authenticate(user=self.athlete_user)
+        response = self.client.get(reverse('training-list-create'))
+        rows = response.data.get('results', response.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(training.id, [row['id'] for row in rows])
+
     def test_cross_club_training_blocked(self):
         other_group = Group.objects.create(club=self.other_club, name='Grupo B', schedule='Martes 18:00')
         training = Training.objects.create(

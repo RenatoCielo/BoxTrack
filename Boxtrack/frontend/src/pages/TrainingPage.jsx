@@ -58,8 +58,8 @@ export function TrainingPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const load = async () => {
-    setLoading(true);
+  const load = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const [trainingRows, groupRows, athleteRows, attendanceRows] = await Promise.all([
@@ -85,7 +85,18 @@ export function TrainingPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const refresh = () => { if (document.visibilityState === 'visible') load({ silent: true }); };
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, []);
 
   const saveTraining = async (values) => {
     setBusy(true);
