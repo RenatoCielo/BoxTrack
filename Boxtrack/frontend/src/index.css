@@ -495,6 +495,8 @@ textarea.control { resize: vertical; }
 .capacity-track span { display: block; height: 100%; background: var(--boxing-red); transition: width .2s ease; }
 .training-actions { display: flex; justify-content: space-between; gap: 9px; margin-top: 15px; }
 .training-actions .button { min-height: 37px; padding: 8px 11px; font-size: 11px; }
+.renewal-box { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line, rgba(255, 255, 255, 0.14)); border-radius: 12px; }
+.renewal-box .training-actions { flex-wrap: wrap; }
 .closed-training-list { display: grid; }
 .closed-training-list > div { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); padding: 10px 0; color: var(--ink-soft); font-size: 12px; }
 .closed-training-list > div > span:first-child { flex: 1; color: var(--ink); }
@@ -710,7 +712,6 @@ textarea.control { resize: vertical; }
 .activity-tag, .status-tag { border-color: #efd2d7; background: #fff1f3; color: var(--boxing-red); }
 .tone-green { background: #fae9ec; color: var(--boxing-red); }
 .status-pill.is-active, .result-win { border-color: #efd2d7; background: #fff1f3; color: var(--boxing-red); }
-.notice-success { border-color: #efd2d7; background: #fff1f3; color: #8e1b2a; }
 .roster-avatar { background: #fae9ec; color: var(--boxing-red); }
 .notification-row.unread { border-left-color: var(--boxing-red); background: #fffafa; }
 
@@ -808,7 +809,7 @@ textarea.control { resize: vertical; }
 :root[data-theme="dark"] .button-secondary:hover,
 :root[data-theme="dark"] .secondary-btn:hover { background: #343238; }
 :root[data-theme="dark"] .notification-row.unread { border-color: #67414a; background: #382329; }
-:root[data-theme="dark"] .notice-success,
+:root[data-theme="dark"] .notice-success { border-color: #2f5a41; background: #1f3a2a; color: #9fe0b5; }
 :root[data-theme="dark"] .status-pill.is-active,
 :root[data-theme="dark"] .result-win,
 :root[data-theme="dark"] .activity-tag,
@@ -989,3 +990,12 @@ details.orphan-accounts-panel { display: block; border-radius: 16px; }
 }
 .modal-scrim { z-index: 70; }
 .form-dialog { padding-bottom: env(safe-area-inset-bottom); }
+.competition-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; align-items: end; margin-bottom: 14px; }
+.competition-list > div { flex-wrap: wrap; row-gap: 8px; }
+.competition-list > div > span:first-child { flex: 0 1 auto; }
+.competition-list .inline-review { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
+.competition-list .inline-review .control { flex: 1 1 200px; min-width: 0; }
+@media (max-width: 600px) {
+  .competition-form { grid-template-columns: 1fr; }
+  .competition-list > div > .button, .competition-list .inline-review .button { flex: 1 1 100%; }
+}

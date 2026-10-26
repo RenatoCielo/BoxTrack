@@ -43,8 +43,9 @@ export function StorePage() {
   const [orders, setOrders] = useState([]);
   const [onlinePaymentAvailable, setOnlinePaymentAvailable] = useState(false);
   const [bankTransferInstructions, setBankTransferInstructions] = useState('');
+  const cartKey = `boxtrack.cart.${user?.id ?? 'anon'}`;
   const [cart, setCart] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('boxtrack.cart') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(cartKey) || '[]'); } catch { return []; }
   });
   const [category, setCategory] = useState('ALL');
   const [query, setQuery] = useState('');
@@ -67,6 +68,12 @@ export function StorePage() {
         api.get('/store/checkout-config/').then((response) => response.data)
       ]);
       setProducts(productRows);
+      // Alinea el carrito guardado con el catálogo real: precio, stock e imagen vigentes.
+      setCart((current) => current.flatMap((item) => {
+        const fresh = productRows.find((product) => product.id === item.id);
+        if (!fresh || fresh.is_active === false || fresh.stock < 1) return [];
+        return [{ ...item, name: fresh.name, price: fresh.price, stock: fresh.stock, image_url: fresh.image_url, quantity: Math.min(item.quantity, fresh.stock) }];
+      }));
       setOrders(orderRows);
       setOnlinePaymentAvailable(checkoutConfig.mercado_pago_available);
       setBankTransferInstructions(checkoutConfig.bank_transfer_instructions || '');
@@ -75,7 +82,7 @@ export function StorePage() {
   };
 
   useEffect(() => { load(); }, []);
-  useEffect(() => { localStorage.setItem('boxtrack.cart', JSON.stringify(cart)); }, [cart]);
+  useEffect(() => { localStorage.setItem(cartKey, JSON.stringify(cart)); }, [cart, cartKey]);
 
   const visibleProducts = useMemo(() => products.filter((product) =>
     (category === 'ALL' || product.category === category) &&
@@ -114,7 +121,7 @@ export function StorePage() {
     setCart((current) => {
       const existing = current.find((item) => item.id === product.id);
       if (existing) return current.map((item) => item.id === product.id ? { ...item, quantity: Math.min(item.quantity + 1, product.stock) } : item);
-      return [...current, { id: product.id, name: product.name, price: product.price, stock: product.stock, quantity: 1 }];
+      return [...current, { id: product.id, name: product.name, price: product.price, stock: product.stock, image_url: product.image_url, quantity: 1 }];
     });
   };
 
@@ -218,7 +225,7 @@ export function StorePage() {
       </article>)}{!visibleProducts.length && <div className="surface-panel empty-state">No encontramos productos con esos filtros.</div>}</div>
     </>}
 
-    {tab === 'cart' && <div className="checkout-layout"><section className="cart-lines surface-panel"><div className="section-heading"><div><p className="eyebrow">TU SELECCIÓN</p><h2>Carrito</h2></div></div>{cart.length ? cart.map((item) => <div className="cart-line" key={item.id}><div className="cart-product-mark"><Package size={18} /></div><div className="cart-product-name"><strong>{item.name}</strong><span>{priceFormat.format(item.price)} c/u</span></div><div className="quantity-stepper"><button onClick={() => changeQuantity(item.id, -1)} aria-label="Quitar una unidad"><Minus size={14} /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.id, 1)} disabled={item.quantity >= item.stock} aria-label="Agregar una unidad"><Plus size={14} /></button></div><strong className="cart-subtotal">{priceFormat.format(Number(item.price) * item.quantity)}</strong><button className="icon-button delete-action" onClick={() => setCart((current) => current.filter((product) => product.id !== item.id))} aria-label={`Quitar ${item.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-state">Tu carrito está vacío. Agrega productos del catálogo.</div>}</section>
+    {tab === 'cart' && <div className="checkout-layout"><section className="cart-lines surface-panel"><div className="section-heading"><div><p className="eyebrow">TU SELECCIÓN</p><h2>Carrito</h2></div>{cart.length > 0 && <button className="button button-secondary" onClick={() => { if (window.confirm('¿Vaciar el carrito?')) setCart([]); }}>Vaciar carrito</button>}</div>{cart.length ? cart.map((item) => <div className="cart-line" key={item.id}><div className="cart-product-mark">{item.image_url ? <img src={item.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} /> : <Package size={18} />}</div><div className="cart-product-name"><strong>{item.name}</strong><span>{priceFormat.format(item.price)} c/u</span></div><div className="quantity-stepper"><button onClick={() => changeQuantity(item.id, -1)} aria-label="Quitar una unidad"><Minus size={14} /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.id, 1)} disabled={item.quantity >= item.stock} aria-label="Agregar una unidad"><Plus size={14} /></button></div><strong className="cart-subtotal">{priceFormat.format(Number(item.price) * item.quantity)}</strong><button className="icon-button delete-action" onClick={() => setCart((current) => current.filter((product) => product.id !== item.id))} aria-label={`Quitar ${item.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-state">Tu carrito está vacío. Agrega productos del catálogo.</div>}</section>
       <aside className="checkout-panel surface-panel"><p className="eyebrow">RESERVA Y PAGO</p><h2>Resumen del pedido</h2><label className="field-label"><span>Elige cómo continuar</span><select className="control" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="RESERVE">Reservar para retirar y pagar en el gimnasio</option><option value="BANK_TRANSFER" disabled={!bankTransferInstructions.trim()}>Transferencia bancaria{bankTransferInstructions.trim() ? '' : ' (no configurada)'}</option><option value="MERCADO_PAGO" disabled={!onlinePaymentAvailable}>Mercado Pago: débito o crédito{onlinePaymentAvailable ? '' : ' (no configurado)'}</option></select></label>{paymentMethod === 'BANK_TRANSFER' && <div className="bank-transfer-details"><strong>Datos para transferir</strong><p>{bankTransferInstructions}</p><small>El pedido queda reservado hasta que el gimnasio verifique la transferencia.</small></div>}{paymentMethod === 'RESERVE' && <p className="checkout-note payment-setup-note">Apartaremos el stock para que retires y pagues en el gimnasio.</p>}{!onlinePaymentAvailable && <p className="checkout-note">El pago con tarjeta/débito se habilita al configurar Mercado Pago en el servidor.</p>}<div className="checkout-total"><span>Total</span><strong>{priceFormat.format(cartTotal)}</strong></div><button className="button primary-btn checkout-button" disabled={!cart.length || busy} onClick={checkout}>{busy ? 'Procesando...' : paymentMethod === 'MERCADO_PAGO' ? 'Pagar con Mercado Pago' : paymentMethod === 'BANK_TRANSFER' ? 'Confirmar transferencia' : 'Reservar productos'}</button><p className="checkout-note">Pedidos con retiro en el gimnasio.</p></aside>
     </div>}
 

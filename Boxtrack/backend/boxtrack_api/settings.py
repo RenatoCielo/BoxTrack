@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.reports',
     'apps.store',
+    'apps.memberships',
     'apps.common',
 ]
 

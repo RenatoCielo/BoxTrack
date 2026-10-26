@@ -408,11 +408,33 @@ class OrderPaymentProofReviewView(APIView):
         return Response(OrderSerializer(order).data)
 
 
-def create_mercadopago_preference(order):
+MERCADOPAGO_ENV_KEYS = ('MERCADOPAGO_ACCESS_TOKEN', 'MERCADOPAGO_WEBHOOK_SECRET', 'MERCADOPAGO_NOTIFICATION_URL')
+
+
+def mercadopago_configured():
+    return all(os.getenv(key) for key in MERCADOPAGO_ENV_KEYS)
+
+
+def post_mercadopago_preference(payload):
+    """Crea la preferencia en Mercado Pago y devuelve (url_checkout, id_preferencia)."""
     token = os.getenv('MERCADOPAGO_ACCESS_TOKEN')
+    if not mercadopago_configured():
+        raise StoreUnavailable('Mercado Pago requiere token, secreto de webhook y URL pública de notificaciones en el .env de la raíz del proyecto.')
+    request = urllib.request.Request(
+        'https://api.mercadopago.com/checkout/preferences',
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        result = json.loads(response.read().decode('utf-8'))
+    return result.get('init_point') or result['sandbox_init_point'], result['id']
+
+
+def create_mercadopago_preference(order):
     frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
     notification_url = os.getenv('MERCADOPAGO_NOTIFICATION_URL')
-    if not token or not notification_url or not os.getenv('MERCADOPAGO_WEBHOOK_SECRET'):
+    if not mercadopago_configured():
         raise StoreUnavailable('Mercado Pago requiere token, secreto de webhook y URL pública de notificaciones en el .env de la raíz del proyecto.')
     payload = {
         'items': [{
@@ -433,15 +455,30 @@ def create_mercadopago_preference(order):
         'expiration_date_to': (timezone.now() + timedelta(minutes=30)).isoformat(),
         'statement_descriptor': 'BOXTRACK',
     }
-    request = urllib.request.Request(
-        'https://api.mercadopago.com/checkout/preferences',
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
-        method='POST',
+    return post_mercadopago_preference(payload)
+
+
+def webhook_signature_valid(request, data_id):
+    secret = os.getenv('MERCADOPAGO_WEBHOOK_SECRET')
+    signature = request.headers.get('x-signature', '')
+    request_id = request.headers.get('x-request-id', '')
+    signature_parts = dict(part.split('=', 1) for part in signature.split(',') if '=' in part)
+    timestamp = signature_parts.get('ts')
+    received_signature = signature_parts.get('v1')
+    manifest = f'id:{data_id};request-id:{request_id};ts:{timestamp};'
+    expected = hmac.new((secret or '').encode(), manifest.encode(), hashlib.sha256).hexdigest()
+    return bool(secret and timestamp and received_signature and hmac.compare_digest(expected, received_signature))
+
+
+def fetch_mercadopago_payment(data_id):
+    """Consulta el pago real en la API oficial; lanza URLError o ValueError si falla."""
+    token = os.getenv('MERCADOPAGO_ACCESS_TOKEN')
+    payment_request = urllib.request.Request(
+        f'https://api.mercadopago.com/v1/payments/{data_id}',
+        headers={'Authorization': f'Bearer {token}'},
     )
-    with urllib.request.urlopen(request, timeout=15) as response:
-        result = json.loads(response.read().decode('utf-8'))
-    return result.get('init_point') or result['sandbox_init_point'], result['id']
+    with urllib.request.urlopen(payment_request, timeout=15) as response:
+        return json.loads(response.read().decode('utf-8'))
 
 
 class MercadoPagoWebhookView(APIView):
@@ -449,30 +486,30 @@ class MercadoPagoWebhookView(APIView):
     authentication_classes = []
 
     def post(self, request):
-        secret = os.getenv('MERCADOPAGO_WEBHOOK_SECRET')
-        signature = request.headers.get('x-signature', '')
-        request_id = request.headers.get('x-request-id', '')
-        data_id = str(request.query_params.get('data.id') or request.data.get('data', {}).get('id', '')).lower()
-        signature_parts = dict(part.split('=', 1) for part in signature.split(',') if '=' in part)
-        timestamp = signature_parts.get('ts')
-        received_signature = signature_parts.get('v1')
-        manifest = f'id:{data_id};request-id:{request_id};ts:{timestamp};'
-        expected = hmac.new((secret or '').encode(), manifest.encode(), hashlib.sha256).hexdigest()
-        if not secret or not timestamp or not received_signature or not hmac.compare_digest(expected, received_signature):
+        body = request.data if isinstance(request.data, dict) else {}
+        data = body.get('data') if isinstance(body.get('data'), dict) else {}
+        data_id = str(request.query_params.get('data.id') or data.get('id', '')).lower()
+        if not webhook_signature_valid(request, data_id):
             return Response({'detail': 'Firma de webhook no válida.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        token = os.getenv('MERCADOPAGO_ACCESS_TOKEN')
-        if not token or not data_id:
+        # Solo los eventos de pago se consultan; merchant_order y otros se confirman (200) sin
+        # tratar su id como id de pago ni cambiar ningún estado, para evitar reintentos inútiles.
+        topic = str(body.get('type') or body.get('topic') or request.query_params.get('type')
+                    or request.query_params.get('topic') or '').lower()
+        if topic and topic != 'payment':
+            return Response({'received': True, 'ignored': topic}, status=status.HTTP_200_OK)
+
+        if not os.getenv('MERCADOPAGO_ACCESS_TOKEN') or not data_id:
             return Response({'detail': 'Notificación incompleta.'}, status=status.HTTP_400_BAD_REQUEST)
-        payment_request = urllib.request.Request(
-            f'https://api.mercadopago.com/v1/payments/{data_id}',
-            headers={'Authorization': f'Bearer {token}'},
-        )
         try:
-            with urllib.request.urlopen(payment_request, timeout=15) as response:
-                payment = json.loads(response.read().decode('utf-8'))
-        except (urllib.error.URLError, ValueError):
+            payment = fetch_mercadopago_payment(data_id)
+        except (urllib.error.URLError, OSError, ValueError):
             return Response({'detail': 'No se pudo verificar el pago con el proveedor.'}, status=status.HTTP_502_BAD_GATEWAY)
+        if not isinstance(payment, dict):
+            return Response({'detail': 'No se pudo verificar el pago con el proveedor.'}, status=status.HTTP_502_BAD_GATEWAY)
+        if str(payment.get('external_reference') or '').startswith('membership:'):
+            from apps.memberships.payments import process_membership_payment
+            return process_membership_payment(payment, data_id)
         if payment.get('status') != 'approved':
             return Response({'received': True}, status=status.HTTP_200_OK)
 

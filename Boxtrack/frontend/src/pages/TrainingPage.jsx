@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { CalendarDays, Check, Clock3, Pencil, Plus, Users, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { api, getErrorMessage, readCollection } from '../services/api';
@@ -57,17 +58,31 @@ export function TrainingPage() {
   const [athleteId, setAthleteId] = useState('');
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
+  const [requireMembership, setRequireMembership] = useState(false);
+  const [memberships, setMemberships] = useState([]);
+
+  const hasValidMembership = (training) => memberships.some((item) =>
+    item.status === 'ACTIVE' && item.end_date >= training.scheduled_date && (!item.start_date || item.start_date <= training.scheduled_date));
+  const membershipBlocked = (training) => !isStaff && requireMembership && !hasValidMembership(training);
+  const hasPendingMembership = memberships.some((item) => item.status === 'PENDING');
+  const membershipMessage = hasPendingMembership
+    ? 'Tu membresía está pendiente de pago. Podrás reservar cuando el club la confirme.'
+    : 'Tu club exige una membresía activa y vigente para reservar clases.';
 
   const load = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     setError('');
     try {
-      const [trainingRows, groupRows, athleteRows, attendanceRows] = await Promise.all([
+      const [trainingRows, groupRows, athleteRows, attendanceRows, settingsRow, membershipRows] = await Promise.all([
         readCollection('/trainings/'),
         isStaff ? readCollection('/groups/') : Promise.resolve([]),
         isStaff ? readCollection('/athletes/') : Promise.resolve([]),
-        isStaff ? readCollection('/attendance/') : Promise.resolve([])
+        isStaff ? readCollection('/attendance/') : Promise.resolve([]),
+        api.get('/memberships/settings/').then((response) => response.data).catch(() => ({ require_active_membership: false })),
+        isStaff ? Promise.resolve([]) : api.get('/memberships/').then((response) => response.data).catch(() => [])
       ]);
+      setRequireMembership(Boolean(settingsRow.require_active_membership));
+      setMemberships(membershipRows);
       const scheduledRows = trainingRows.filter((training) => training.status === 'SCHEDULED');
       const reservationEntries = await Promise.all(scheduledRows.map(async (training) => {
         try { return [training.id, await api.get(`/trainings/${training.id}/reservations/`).then((response) => response.data)]; }
@@ -114,15 +129,23 @@ export function TrainingPage() {
 
   const makeReservation = async (training, selectedAthleteId) => {
     if (!training) return;
+    if (membershipBlocked(training)) {
+      setError(membershipMessage);
+      return;
+    }
     setBusy(true);
     setFormError('');
+    setError('');
     try {
       await api.post(`/trainings/${training.id}/reservations/`, isStaff ? { athlete: Number(selectedAthleteId) } : {});
       setReserveTarget(null);
       setAthleteId('');
       setNotice('Cupo reservado correctamente.');
       await load();
-    } catch (requestError) { setFormError(getErrorMessage(requestError)); }
+    } catch (requestError) {
+      const message = getErrorMessage(requestError);
+      if (isStaff) setFormError(message); else setError(message);
+    }
     finally { setBusy(false); }
   };
 
@@ -160,7 +183,7 @@ export function TrainingPage() {
   return <section className="page-stack">
     <header className="page-heading"><div><p className="eyebrow">AGENDA Y RESERVAS</p><h1>Clases y cupos</h1><p className="page-description">Programa las sesiones, administra el aforo y controla la lista del día.</p></div>{isStaff && <button className="button primary-btn" onClick={() => { setEditor({}); setFormError(''); }}><Plus size={16} /> Programar clase</button>}</header>
     {notice && <div className="notice notice-success" role="status">{notice}<button className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar aviso"><X size={15} /></button></div>}
-    {error && <div className="notice notice-error">{error}</div>}
+    {error && <div className="notice notice-error">{error}{!isStaff && requireMembership && /membres/i.test(error) && <> <Link to="/memberships">Ver planes disponibles</Link></>}</div>}
     {loading ? <div className="empty-state">Cargando agenda...</div> : planned.length ? <div className="training-grid">{planned.map((training) => {
       const reservations = reservationMap[training.id] || [];
       const ownReservation = reservations[0];
@@ -171,7 +194,8 @@ export function TrainingPage() {
         <p className="training-description">{training.description || training.objectives || 'Sesión de entrenamiento del club.'}</p>
         <div className="training-meta"><span><CalendarDays size={15} />{new Date(`${training.scheduled_date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}</span><span><Clock3 size={15} />{training.start_time?.slice(0, 5)} · {training.duration_minutes} min</span><span><Users size={15} />{training.reserved_count || 0}/{training.capacity} cupos</span></div>
         <div className="capacity-track"><span style={{ width: `${Math.min(100, (training.reserved_count || 0) / Math.max(1, training.capacity) * 100)}%` }} /></div>
-        <div className="training-actions">{isStaff && <button className="button button-secondary" onClick={() => openRoster(training)}><Users size={15} /> Lista ({training.reserved_count || 0})</button>}{isStaff ? <><button className="button button-secondary" disabled={full} onClick={() => { setReserveTarget(training); setAthleteId(''); setFormError(''); }}>{full ? 'Completa' : 'Inscribir'}</button><button className="icon-button delete-action" title="Eliminar clase" aria-label="Eliminar clase" onClick={() => removeTraining(training)}><X size={16} /></button></> : ownReservation ? <button className="button button-danger" onClick={() => cancelReservation(training.id, ownReservation.id)}>Cancelar mi cupo</button> : <button className="button primary-btn" disabled={full || busy} onClick={() => makeReservation(training)}>{full ? 'Completa' : 'Reservar cupo'}</button>}</div>
+        <div className="training-actions">{isStaff && <button className="button button-secondary" onClick={() => openRoster(training)}><Users size={15} /> Lista ({training.reserved_count || 0})</button>}{isStaff ? <><button className="button button-secondary" disabled={full} onClick={() => { setReserveTarget(training); setAthleteId(''); setFormError(''); }}>{full ? 'Completa' : 'Inscribir'}</button><button className="icon-button delete-action" title="Eliminar clase" aria-label="Eliminar clase" onClick={() => removeTraining(training)}><X size={16} /></button></> : ownReservation ? <button className="button button-danger" onClick={() => cancelReservation(training.id, ownReservation.id)}>Cancelar mi cupo</button> : <button className="button primary-btn" disabled={full || busy || membershipBlocked(training)} onClick={() => makeReservation(training)}>{full ? 'Completa' : 'Reservar cupo'}</button>}</div>
+        {membershipBlocked(training) && !ownReservation && <p className="proof-pending-note">{membershipMessage} <Link to="/memberships">Ver planes disponibles</Link></p>}
       </article>;
     })}</div> : <div className="surface-panel empty-state">No hay clases programadas.{isStaff && ' Programa la primera para abrir reservas.'}</div>}
     {otherTrainings.length > 0 && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">HISTORIAL</p><h2>Clases cerradas o canceladas</h2></div></div><div className="closed-training-list">{otherTrainings.map((training) => <div key={training.id}><span>{training.title}</span><span>{new Date(`${training.scheduled_date}T12:00:00`).toLocaleDateString('es-CL')}</span><span className="status-pill">{statusLabels[training.status]}</span>{isStaff && <button className="icon-button delete-action" onClick={() => removeTraining(training)} aria-label="Eliminar clase"><X size={15} /></button>}</div>)}</div></section>}

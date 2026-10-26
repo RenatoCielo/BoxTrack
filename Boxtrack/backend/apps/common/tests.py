@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     'evaluations.Evaluation': 'evaluaciones',
     'weight_tracking.WeightRecord': 'registros_peso',
     'competitions.Competition': 'competencias',
+    'competitions.CompetitorRequest': 'solicitudes_competidor',
+    'competitions.FightMatch': 'combates_entre_clubes',
     'alerts.Alert': 'alertas',
     'notifications.Notification': 'notificaciones',
     'store.StoreSettings': 'configuracion_tienda',

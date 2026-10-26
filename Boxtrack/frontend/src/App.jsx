@@ -8,6 +8,8 @@ import { ResourcePage } from './pages/ResourcePage';
 import { TrainingPage } from './pages/TrainingPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { StorePage } from './pages/StorePage';
+import { MembershipsPage } from './pages/MembershipsPage';
+import { CompetitionPage } from './pages/CompetitionPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 function AppRoutes() {
@@ -33,6 +35,8 @@ function AppRoutes() {
         <Route path="/alerts" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="alerts" /> : <Navigate to="/trainings" replace />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/store" element={<StorePage />} />
+        <Route path="/memberships" element={canAccess(['ADMIN', 'ATHLETE']) ? <MembershipsPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/competition" element={<CompetitionPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="/" element={<Navigate to={user ? defaultPath : '/login'} replace />} />

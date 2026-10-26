@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from apps.athletes.models import Athlete
 from apps.common.permissions import ClubRolePermission, scope_to_assigned_athletes, user_role
+from apps.memberships.models import MEMBERSHIP_REQUIRED_CODE, membership_required_error, weekly_limit_error
 from apps.notifications.models import Notification
 from apps.trainings.models import Training
 from apps.trainings.models import TrainingReservation
@@ -129,6 +130,13 @@ class TrainingReservationListCreateView(APIView):
             if reservation and reservation.status == 'RESERVED':
                 return Response({'detail': 'El deportista ya tiene un cupo reservado.'}, status=status.HTTP_409_CONFLICT)
 
+            required_message = membership_required_error(athlete, training)
+            if required_message:
+                return Response({'detail': required_message, 'code': MEMBERSHIP_REQUIRED_CODE}, status=status.HTTP_409_CONFLICT)
+
+            limit_message = weekly_limit_error(athlete, training)
+            if limit_message:
+                return Response({'detail': limit_message}, status=status.HTTP_409_CONFLICT)
             active_reservations = TrainingReservation.objects.filter(training=training, status='RESERVED').count()
             if active_reservations >= training.capacity:
                 return Response({'detail': 'La clase ya alcanzó su capacidad máxima.'}, status=status.HTTP_409_CONFLICT)

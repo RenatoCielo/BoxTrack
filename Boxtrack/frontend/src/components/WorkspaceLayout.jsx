@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  Bell, CalendarDays, KeyRound, LayoutDashboard, LogOut, Menu, Settings, X,
+  Bell, CalendarDays, CreditCard, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Settings, X,
   Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag, TriangleAlert
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
@@ -53,9 +53,11 @@ const navigation = [
   { to: '/trainings', label: 'Clases y cupos', icon: CalendarDays, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck, roles: ['ADMIN', 'TRAINER'] },
   { to: '/fights', label: 'Historial de combates', icon: Swords, roles: ['ADMIN', 'TRAINER'] },
+  { to: '/competition', label: 'Combates entre clubes', icon: Handshake, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/alerts', label: 'Alertas', icon: TriangleAlert, roles: ['ADMIN', 'TRAINER'] },
   { to: '/notifications', label: 'Notificaciones', icon: Bell, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
+  { to: '/memberships', label: 'Membresías', icon: CreditCard, roles: ['ADMIN', 'ATHLETE'] },
   { to: '/settings', label: 'Configuración', icon: Settings, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
 ];
 

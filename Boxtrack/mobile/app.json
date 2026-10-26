@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "BoxTrack",
+    "slug": "boxtrack-mobile",
+    "scheme": "boxtrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#151518"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "cl.boxtrack.mobile"
+    },
+    "android": {
+      "package": "cl.boxtrack.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#151518",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BoxTrack necesita acceder a tus fotos para adjuntar comprobantes de pago."
+        }
+      ]
+    ]
+  }
+}

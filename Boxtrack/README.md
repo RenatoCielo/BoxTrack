@@ -125,7 +125,7 @@ En desarrollo local, DB Browser puede abrir `backend/db.sqlite3`. Ejecuta `pytho
 
 El administrador agrega productos desde **Tienda**, incluyendo precio y stock. Los usuarios autenticados pueden armar un carrito y crear pedidos; el stock se reserva al confirmar, y se libera al cancelar o al vencer un checkout online.
 
-Transferencia y pago presencial quedan como pedidos pendientes para confirmación del gimnasio. Para habilitar cobro con Mercado Pago, copia `.env.example` a `.env` en la raíz del proyecto y configura `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` y `MERCADOPAGO_NOTIFICATION_URL`. La URL de notificación debe ser pública y apuntar a `/api/store/payments/mercadopago/webhook/`; en desarrollo local puedes exponer el backend mediante un túnel HTTPS. Sin estas credenciales BOXTRACK desactiva el pago online y no simula cobros.
+Transferencia y pago presencial quedan como pedidos pendientes para confirmación del gimnasio. Para habilitar cobro con Mercado Pago (tienda **y compra de membresías**, que comparten el mismo webhook), copia `.env.example` a `.env` en la raíz del proyecto y configura `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`, `MERCADOPAGO_NOTIFICATION_URL` y `FRONTEND_URL`. La URL de notificación debe ser pública y apuntar a `/api/store/payments/mercadopago/webhook/`; en desarrollo local puedes exponer el backend mediante un túnel HTTPS. Sin estas credenciales BOXTRACK desactiva el pago online y no simula cobros.
 
 ## Plantel competitivo
 
