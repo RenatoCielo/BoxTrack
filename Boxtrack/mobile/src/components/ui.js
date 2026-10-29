@@ -49,6 +49,14 @@ export function SectionTitle({ children, action }) {
 
 export function Button({ title, onPress, variant = 'primary', loading = false, disabled = false, icon, small, style, testID }) {
   const inactive = disabled || loading;
+  const variantStyle = variant === 'primary' ? { backgroundColor: colors.red }
+    : variant === 'danger' ? { backgroundColor: colors.redDark }
+      : variant === 'secondary' ? { backgroundColor: colors.dark, borderWidth: 1, borderColor: colors.dark }
+        : { backgroundColor: 'transparent' };
+  const variantText = variant === 'primary' ? colors.primaryText
+    : variant === 'danger' ? colors.white
+      : variant === 'secondary' ? colors.accentText
+        : variant === 'ghost' ? colors.red : colors.ink;
   return (
     <Pressable
       testID={testID}
@@ -59,18 +67,18 @@ export function Button({ title, onPress, variant = 'primary', loading = false, d
       style={({ pressed }) => [
         styles.button,
         small && styles.buttonSmall,
-        variantStyles[variant],
+        variantStyle,
         inactive && styles.buttonDisabled,
         pressed && !inactive && { opacity: 0.85 },
         style
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' || variant === 'danger' ? colors.white : colors.red} />
+        <ActivityIndicator color={variant === 'primary' ? colors.primaryText : variant === 'danger' || variant === 'secondary' ? colors.accentText : colors.red} />
       ) : (
         <>
-          {icon ? <Ionicons name={icon} size={small ? 14 : 16} color={textColors[variant]} style={{ marginRight: 6 }} /> : null}
-          <Text style={[styles.buttonText, small && { fontSize: 13 }, { color: textColors[variant] }]}>{title}</Text>
+          {icon ? <Ionicons name={icon} size={small ? 14 : 16} color={variantText} style={{ marginRight: 6 }} /> : null}
+          <Text style={[styles.buttonText, small && { fontSize: 13 }, { color: variantText }]}>{title}</Text>
         </>
       )}
     </Pressable>
@@ -191,23 +199,15 @@ export function Segmented({ options, value, onChange }) {
             onPress={() => onChange(option.value)}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
-            style={[styles.chip, active && styles.chipActive]}
+            style={[styles.chip, active && { backgroundColor: colors.red, borderColor: colors.red }]}
           >
-            <Text style={[styles.chipText, active && { color: colors.white }]}>{option.label}</Text>
+            <Text style={[styles.chipText, active && { color: colors.primaryText }]}>{option.label}</Text>
           </Pressable>
         );
       })}
     </ScrollView>
   );
 }
-
-const variantStyles = StyleSheet.create({
-  primary: { backgroundColor: colors.red },
-  secondary: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
-  danger: { backgroundColor: colors.redDark },
-  ghost: { backgroundColor: 'transparent' }
-});
-const textColors = { primary: colors.white, secondary: colors.ink, danger: colors.white, ghost: colors.red };
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.canvas },
@@ -231,6 +231,5 @@ const styles = StyleSheet.create({
   loading: { alignItems: 'center', paddingVertical: 60 },
   kv: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
-  chipActive: { backgroundColor: colors.red, borderColor: colors.red },
   chipText: { fontSize: 13, fontWeight: '600', color: colors.ink }
 });

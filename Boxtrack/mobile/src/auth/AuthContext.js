@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { tokenStorage } from '../api/storage';
+import { applyClubBranding } from '../theme';
 
 const AuthContext = createContext(null);
 
@@ -14,17 +15,21 @@ export function AuthProvider({ children }) {
     setStatus('loading');
     const token = await tokenStorage.getAccess();
     if (!token) {
+      applyClubBranding(null);
       setStatus('signedOut');
       return;
     }
     try {
-      setUser(await api.get('/auth/profile/'));
+      const profile = await api.get('/auth/profile/');
+      applyClubBranding(profile.club);
+      setUser(profile);
       setStatus('signedIn');
     } catch (error) {
       if (error.isNetwork) {
         setStatus('offline');
       } else {
         await tokenStorage.clear();
+        applyClubBranding(null);
         setUser(null);
         setStatus('signedOut');
       }
@@ -33,6 +38,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     api.setSessionExpiredHandler(() => {
+      applyClubBranding(null);
       setUser(null);
       setNotice('Tu sesión expiró. Inicia sesión nuevamente.');
       setStatus('signedOut');
@@ -44,6 +50,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     const data = await api.post('/auth/login/', { username: username.trim(), password });
     await tokenStorage.save(data.tokens);
+    applyClubBranding(data.user.club);
     setNotice('');
     setUser(data.user);
     setStatus('signedIn');
@@ -52,6 +59,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     await tokenStorage.clear();
+    applyClubBranding(null);
     setUser(null);
     setNotice('');
     setStatus('signedOut');
@@ -59,12 +67,14 @@ export function AuthProvider({ children }) {
 
   const refreshUser = useCallback(async () => {
     const data = await api.get('/auth/profile/');
+    applyClubBranding(data.club);
     setUser(data);
     return data;
   }, []);
 
   const updateProfile = useCallback(async (values) => {
     const data = await api.patch('/auth/profile/', values);
+    applyClubBranding(data.club);
     setUser(data);
     return data;
   }, []);

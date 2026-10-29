@@ -72,12 +72,12 @@ function OrderCard({ order, isAdmin, onChanged }) {
         {order.proof_review_note ? <KeyValue label="Nota del club" value={order.proof_review_note} /> : null}
         <KeyValue label="Creado" value={formatDateTime(order.created_at)} />
       </View>
-      {pending && order.payment_method === 'MERCADO_PAGO' ? (
-        <Text style={[font.small, { marginTop: spacing.sm }]}>El pago online se confirma automáticamente desde Mercado Pago. Actualiza esta lista para ver el estado real.</Text>
+      {pending && ['MERCADO_PAGO', 'TRANSBANK'].includes(order.payment_method) ? (
+        <Text style={[font.small, { marginTop: spacing.sm }]}>{order.payment_method === 'TRANSBANK' ? 'Transbank confirma la transacción al regresar desde Webpay. Actualiza esta lista para ver el estado real.' : 'Mercado Pago confirma el pago al club. Actualiza esta lista para ver el estado real.'}</Text>
       ) : null}
       <Banner>{error}</Banner>
       <View style={{ marginTop: spacing.md, gap: 8 }}>
-        {pending && order.checkout_url && !isAdmin ? <Button title="Ir a pagar con Mercado Pago" onPress={() => WebBrowser.openBrowserAsync(order.checkout_url)} /> : null}
+        {pending && order.checkout_url && !isAdmin ? <Button title={`Ir a pagar con ${label('payment', order.payment_method)}`} onPress={() => WebBrowser.openBrowserAsync(order.checkout_url)} /> : null}
         {canSendProof ? <Button title={order.proof_status === 'REJECTED' ? 'Enviar nuevo comprobante' : 'Adjuntar comprobante'} onPress={pickProof} loading={busy} /> : null}
         {awaitingReview && !rejecting ? <Button title="Aprobar comprobante" loading={busy} onPress={() => run(() => api.post(`/store/orders/${order.id}/proof/review/`, { decision: 'APPROVE' }), 'Comprobante aprobado.')} /> : null}
         {awaitingReview && !rejecting ? <Button title="Rechazar comprobante" variant="secondary" onPress={() => setRejecting(true)} disabled={busy} /> : null}

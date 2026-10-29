@@ -68,6 +68,7 @@ class Product(SpanishSchemaModel):
 class Order(SpanishSchemaModel):
     STATUS_CHOICES = [
         ('PENDING', 'Pendiente'),
+        ('PAYMENT_REVIEW', 'Pago en revisiÃ³n'),
         ('PAID', 'Pagada'),
         ('READY', 'Lista para retirar'),
         ('COMPLETED', 'Retirada'),
@@ -75,6 +76,7 @@ class Order(SpanishSchemaModel):
     ]
     PAYMENT_METHOD_CHOICES = [
         ('MERCADO_PAGO', 'Mercado Pago'),
+        ('TRANSBANK', 'Transbank Webpay Plus'),
         ('BANK_TRANSFER', 'Transferencia'),
         ('RESERVE', 'Reserva para retiro'),
     ]
@@ -91,6 +93,11 @@ class Order(SpanishSchemaModel):
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     payment_reference = models.CharField(max_length=120, blank=True)
     checkout_url = models.URLField(blank=True)
+    transbank_url = models.URLField(max_length=255, blank=True)
+    transbank_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    transbank_buy_order = models.CharField(max_length=26, blank=True)
+    transbank_authorization_code = models.CharField(max_length=20, blank=True)
+    transbank_session_id = models.CharField(max_length=61, blank=True)
     payment_proof = models.FileField(storage=private_payment_proof_storage, upload_to=payment_proof_upload_path, blank=True, null=True)
     proof_status = models.CharField(max_length=16, choices=PROOF_STATUS_CHOICES, default='NOT_SUBMITTED')
     proof_review_note = models.CharField(max_length=500, blank=True)

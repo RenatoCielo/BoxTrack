@@ -37,6 +37,8 @@ SPANISH_COLUMN_NAMES = {
     'website': 'sitio_web',
     'disciplines': 'disciplinas',
     'logo': 'logotipo',
+    'primary_color': 'color_primario',
+    'accent_color': 'color_acento',
     'user': 'id_usuario',
     'first_name': 'nombre',
     'last_name': 'apellido',
@@ -107,6 +109,12 @@ SPANISH_COLUMN_NAMES = {
     'payment_method': 'metodo_pago',
     'payment_reference': 'referencia_pago',
     'checkout_url': 'url_pago',
+    'transbank_url': 'url_transbank',
+    'transbank_token': 'token_transbank',
+    'transbank_buy_order': 'orden_compra_transbank',
+    'transbank_authorization_code': 'codigo_autorizacion_transbank',
+    'transbank_session_id': 'id_sesion_transbank',
+    'payment_provider': 'proveedor_pago',
     'payment_proof': 'comprobante_pago',
     'proof_status': 'estado_comprobante',
     'proof_review_note': 'nota_revision_comprobante',
@@ -155,6 +163,7 @@ SPANISH_COLUMN_NAMES = {
     'provider_status': 'estado_proveedor',
     'paid_at': 'fecha_pago',
     'renewal_of': 'renueva_a',
+    'notice_code': 'codigo_aviso',
 }
 
 

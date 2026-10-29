@@ -88,6 +88,11 @@ class MembershipPayment(SpanishSchemaModel):
         ('REVIEW', 'Requiere revisión'),
     ]
 
+    PROVIDER_CHOICES = [
+        ('MERCADO_PAGO', 'Mercado Pago'),
+        ('TRANSBANK', 'Transbank Webpay Plus'),
+    ]
+
     club = models.ForeignKey('clubs.Club', on_delete=models.CASCADE, related_name='membership_payments')
     user = models.ForeignKey('accounts.User', on_delete=models.PROTECT, related_name='membership_payments')
     plan = models.ForeignKey(MembershipPlan, on_delete=models.PROTECT, related_name='payments')
@@ -95,8 +100,14 @@ class MembershipPayment(SpanishSchemaModel):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default='CLP')
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='PENDING')
+    payment_provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default='MERCADO_PAGO')
     payment_reference = models.CharField(max_length=120, blank=True)
     checkout_url = models.URLField(max_length=500, blank=True)
+    transbank_url = models.URLField(max_length=255, blank=True)
+    transbank_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    transbank_buy_order = models.CharField(max_length=26, blank=True)
+    transbank_authorization_code = models.CharField(max_length=20, blank=True)
+    transbank_session_id = models.CharField(max_length=61, blank=True)
     provider_payment_id = models.CharField(max_length=64, null=True, blank=True, unique=True)
     provider_status = models.CharField(max_length=40, blank=True)
     expires_at = models.DateTimeField()
@@ -118,6 +129,26 @@ class MembershipPayment(SpanishSchemaModel):
 
     def __str__(self):
         return f'Pago #{self.pk} {self.membership_id} ({self.status})'
+
+
+class MembershipExpirationNotice(SpanishSchemaModel):
+    NOTICE_CHOICES = [
+        ('DAYS_7', 'Vence en 7 dÃ­as'),
+        ('DAYS_3', 'Vence en 3 dÃ­as'),
+        ('DAY_1', 'Vence maÃ±ana'),
+        ('EXPIRED', 'MembresÃ­a vencida'),
+    ]
+
+    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name='expiration_notices')
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='membership_expiration_notices')
+    notice_code = models.CharField(max_length=8, choices=NOTICE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'avisos_vencimiento_membresia'
+        constraints = [
+            models.UniqueConstraint(fields=['membership', 'notice_code'], name='unique_membership_expiration_notice'),
+        ]
 
 
 class MembershipSettings(SpanishSchemaModel):

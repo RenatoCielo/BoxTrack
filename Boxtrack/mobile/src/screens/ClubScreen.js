@@ -1,5 +1,6 @@
-import { Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 import { api } from '../api';
+import { API_ORIGIN } from '../config';
 import { useAuth } from '../auth/AuthContext';
 import { Badge, Card, EmptyState, KeyValue, ResourceView, Screen } from '../components/ui';
 import { useResource } from '../hooks/useResource';
@@ -20,6 +21,7 @@ export default function ClubScreen() {
   }, [user?.club?.id]);
   const club = resource.data;
   const disciplines = disciplinesOf(club);
+  const logoUri = club?.logo ? (/^https?:\/\//i.test(club.logo) ? club.logo : `${API_ORIGIN}${club.logo}`) : '';
 
   return (
     <Screen eyebrow="MI CLUB" title={club?.name || user.club?.name || 'Club'} onRefresh={resource.refresh} refreshing={resource.refreshing}>
@@ -27,6 +29,11 @@ export default function ClubScreen() {
         {club ? (
           <>
             <Card>
+              {logoUri ? <Image source={{ uri: logoUri }} accessibilityLabel={`Logotipo de ${club.name}`} resizeMode="contain" style={{ width: '100%', height: 110, marginBottom: spacing.md }} /> : null}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: spacing.md }}>
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: club.primary_color || '#c51f35' }} />
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: club.accent_color || '#151518' }} />
+              </View>
               {club.description ? <Text style={[font.body, { marginBottom: spacing.md }]}>{club.description}</Text> : null}
               <KeyValue label="Dirección" value={club.address} />
               <KeyValue label="Teléfono" value={club.phone} />

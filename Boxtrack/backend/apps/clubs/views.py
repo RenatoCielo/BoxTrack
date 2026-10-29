@@ -5,7 +5,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 
 from apps.clubs.models import Club
-from apps.clubs.serializers import ClubSerializer, ClubVerificationSerializer
+from apps.clubs.serializers import ClubBrandingSerializer, ClubSerializer, ClubVerificationSerializer
+from apps.common.permissions import user_role
 
 
 class ClubAccessPermission(permissions.BasePermission):
@@ -81,3 +82,25 @@ class ClubVerificationDocumentUploadView(generics.UpdateAPIView):
         club.verification_submitted_at = timezone.now()
         club.save(update_fields=['verification_document', 'verification_status', 'verification_submitted_at'])
         return Response(ClubSerializer(club).data, status=status.HTTP_200_OK)
+
+
+class ClubBrandingView(generics.GenericAPIView):
+    serializer_class = ClubBrandingSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def get_club(self, request):
+        if user_role(request.user) != 'ADMIN' or not request.user.club_id:
+            raise PermissionDenied('Solo el administrador de un club puede cambiar su imagen y colores.')
+        return Club.objects.get(pk=request.user.club_id)
+
+    def get(self, request):
+        club = self.get_club(request)
+        return Response(self.get_serializer(club).data)
+
+    def patch(self, request):
+        club = self.get_club(request)
+        serializer = self.get_serializer(club, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

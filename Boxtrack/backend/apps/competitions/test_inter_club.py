@@ -40,7 +40,7 @@ class InterClubBase(APITestCase):
     def propose(self, user=None, **extra):
         self.as_user(user or self.admin_a)
         payload = {
-            'challenger_athlete': self.fighter_a.id, 'opponent_athlete': self.fighter_b.id,
+            'challenger_athlete': self.fighter_a.id, 'opponent_club': self.club_b.id, 'opponent_athlete': self.fighter_b.id,
             'fight_date': str(timezone.localdate() + timedelta(days=10)), 'event': 'Velada',
         }
         payload.update(extra)
@@ -133,6 +133,11 @@ class FightMatchTests(InterClubBase):
         self.club_b.save()
         self.assertEqual(self.propose().status_code, 400)
 
+    def test_selected_rival_club_must_match_fighter_and_be_explicit(self):
+        self.assertEqual(self.propose(opponent_club=self.club_c.id).status_code, 400)
+        self.assertEqual(self.propose(opponent_club=None).status_code, 400)
+        self.assertEqual(self.propose().status_code, 201)
+
     def test_response_permissions(self):
         match_id = self.propose().data['id']
         self.assertEqual(self.act(self.admin_a, match_id, 'accept').status_code, 403)
@@ -156,3 +161,19 @@ class FightMatchTests(InterClubBase):
         self.assertEqual([row['id'] for row in rows], [self.fighter_b.id])
         self.as_user(self.athlete_user_a)
         self.assertEqual(self.client.get(reverse('competitor-directory')).status_code, 403)
+
+    def test_rival_club_directory_includes_approved_club_without_competitors(self):
+        self.as_user(self.admin_a)
+        rows = self.client.get(reverse('rival-club-directory')).data
+        self.assertEqual([row['id'] for row in rows], [self.club_b.id, self.club_c.id])
+        self.assertEqual(rows[0]['competitor_count'], 1)
+        self.assertEqual(rows[1]['competitor_count'], 0)
+        self.as_user(self.athlete_user_a)
+        self.assertEqual(self.client.get(reverse('rival-club-directory')).status_code, 403)
+
+    def test_directory_can_be_filtered_to_the_selected_rival_club(self):
+        self.as_user(self.admin_a)
+        response = self.client.get(reverse('competitor-directory'), {'club': self.club_b.id})
+        self.assertEqual([row['id'] for row in response.data], [self.fighter_b.id])
+        self.assertEqual(self.client.get(reverse('competitor-directory'), {'club': self.club_c.id}).data, [])
+        self.assertEqual(self.client.get(reverse('competitor-directory'), {'club': 'invalid'}).status_code, 400)

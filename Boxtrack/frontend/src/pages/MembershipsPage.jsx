@@ -6,8 +6,8 @@ import { api, getErrorMessage, readCollection } from '../services/api';
 const statusLabels = { PENDING: 'Pendiente de pago', ACTIVE: 'Activa', SCHEDULED: 'Renovación programada', EXPIRED: 'Vencida', REJECTED: 'Rechazada', CANCELLED: 'Cancelada' };
 const paymentLabels = { PENDING: 'Pendiente', APPROVED: 'Aprobado', REJECTED: 'Rechazado', CANCELLED: 'Cancelado', EXPIRED: 'Vencido', REFUNDED: 'Reembolsado', REVIEW: 'En revisión' };
 const returnNotices = {
-  success: 'Volviste de Mercado Pago. Tu membresía se activará cuando el pago sea confirmado; puede tardar unos segundos.',
-  pending: 'Tu pago está pendiente en Mercado Pago. La membresía se activará cuando se confirme.',
+  success: 'Volviste del proveedor de pago. Tu membresía se activa cuando el backend confirma la transacción.',
+  pending: 'El proveedor aún no confirmó el pago. La membresía se activará cuando llegue la confirmación.',
   failure: 'El pago no se completó. Tu membresía no fue activada; puedes intentarlo nuevamente.'
 };
 const money = (value, currency = 'CLP') => new Intl.NumberFormat('es-CL', { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(value));
@@ -36,12 +36,35 @@ function PlanDialog({ plan, onClose, onSave, busy, error }) {
   </div>;
 }
 
+function AssignMembershipDialog({ athletes, plans, onClose, onSave, busy, error }) {
+  const [athlete, setAthlete] = useState('');
+  const [plan, setPlan] = useState('');
+  return <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="form-dialog" role="dialog" aria-modal="true" aria-labelledby="membership-dialog-title">
+      <header className="dialog-heading"><div><p className="eyebrow">MEMBRESÍAS DEL CLUB</p><h2 id="membership-dialog-title">Asignar membresía</h2></div><button className="icon-button dialog-close" onClick={onClose} aria-label="Cerrar"><X size={19} /></button></header>
+      <form className="resource-form" onSubmit={(event) => { event.preventDefault(); onSave({ athlete: Number(athlete), plan: Number(plan) }); }}>
+        <div className="field-grid">
+          <label className="field-label field-wide"><span>Deportista con cuenta vinculada *</span><select className="control" required value={athlete} onChange={(event) => setAthlete(event.target.value)}><option value="">Selecciona...</option>{athletes.filter((row) => row.status === 'ACTIVE' && row.user).map((row) => <option key={row.id} value={row.id}>{row.display_name || `${row.first_name} ${row.last_name}`}</option>)}</select></label>
+          <label className="field-label field-wide"><span>Plan *</span><select className="control" required value={plan} onChange={(event) => setPlan(event.target.value)}><option value="">Selecciona...</option>{plans.filter((row) => row.is_active).map((row) => <option key={row.id} value={row.id}>{row.name} · {money(row.price, row.currency)}</option>)}</select></label>
+        </div>
+        {!athletes.some((row) => row.status === 'ACTIVE' && row.user) && <p className="page-description">No hay deportistas activos con cuenta vinculada. Vincula una cuenta en la ficha del deportista antes de asignar una membresía.</p>}
+        {error && <div className="notice notice-error">{error}</div>}
+        <footer className="dialog-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button primary-btn" disabled={busy || !athlete || !plan}>{busy ? 'Guardando...' : 'Asignar membresía'}</button></footer>
+      </form>
+    </section>
+  </div>;
+}
+
 export function MembershipsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isTrainer = user?.role === 'TRAINER';
   const [plans, setPlans] = useState([]);
+  const [athletes, setAthletes] = useState([]);
   const [memberships, setMemberships] = useState([]);
   const [editor, setEditor] = useState(null);
+  const [membershipEditor, setMembershipEditor] = useState(false);
+  const [assignmentError, setAssignmentError] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,24 +73,28 @@ export function MembershipsPage() {
   const [requireMembership, setRequireMembership] = useState(false);
   const [payments, setPayments] = useState([]);
   const [onlineAvailable, setOnlineAvailable] = useState(false);
+  const [transbankAvailable, setTransbankAvailable] = useState(false);
   const [renewal, setRenewal] = useState(null);
   const returnedFrom = new URLSearchParams(window.location.search).get('payment');
 
   const load = async () => {
     setError('');
     try {
-      const [planRows, membershipRows, settingsRow, paymentRows, renewalRow] = await Promise.all([
+      const [planRows, membershipRows, settingsRow, paymentRows, renewalRow, athleteRows] = await Promise.all([
         readCollection('/memberships/plans/'),
         api.get('/memberships/').then((response) => response.data),
         api.get('/memberships/settings/').then((response) => response.data),
         api.get('/memberships/payments/').then((response) => response.data).catch(() => []),
-        isAdmin ? Promise.resolve(null) : api.get('/memberships/renewal/').then((response) => response.data).catch(() => null)
+        user?.role === 'ATHLETE' ? api.get('/memberships/renewal/').then((response) => response.data).catch(() => null) : Promise.resolve(null),
+        isAdmin ? readCollection('/athletes/?status=ACTIVE') : Promise.resolve([])
       ]);
       setPlans(planRows);
+      setAthletes(athleteRows);
       setMemberships(membershipRows);
       setPayments(paymentRows);
       setRenewal(renewalRow);
       setOnlineAvailable(Boolean(settingsRow.mercado_pago_available));
+      setTransbankAvailable(Boolean(settingsRow.transbank_available));
       setRequireMembership(Boolean(settingsRow.require_active_membership));
     } catch (requestError) { setError(getErrorMessage(requestError)); }
     finally { setLoading(false); }
@@ -115,6 +142,18 @@ export function MembershipsPage() {
     finally { setBusy(false); }
   };
 
+  const assignMembership = async (values) => {
+    setBusy(true);
+    setAssignmentError('');
+    try {
+      await api.post('/memberships/', values);
+      setMembershipEditor(false);
+      setNotice('Membresía asignada. El deportista ya puede verla en su cuenta.');
+      await load();
+    } catch (requestError) { setAssignmentError(getErrorMessage(requestError)); }
+    finally { setBusy(false); }
+  };
+
   const requestPlan = async (plan) => {
     setBusy(true);
     setError('');
@@ -126,24 +165,24 @@ export function MembershipsPage() {
     finally { setBusy(false); }
   };
 
-  const payOnline = async (plan) => {
+  const payOnline = async (plan, provider = 'MERCADO_PAGO') => {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.post('/memberships/payments/', { plan: plan.id });
+      const { data } = await api.post('/memberships/payments/', { plan: plan.id, provider });
       if (data.checkout_url) window.location.assign(data.checkout_url);
       else await load();
     } catch (requestError) { setError(getErrorMessage(requestError)); await load(); }
     finally { setBusy(false); }
   };
 
-  const renew = async (method, plan) => {
+  const renew = async (method, plan, provider = 'MERCADO_PAGO') => {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.post('/memberships/renewal/', { method, ...(plan ? { plan: plan.id } : {}) });
+      const { data } = await api.post('/memberships/renewal/', { method, ...(plan ? { plan: plan.id } : {}), ...(method === 'ONLINE' ? { provider } : {}) });
       if (method === 'ONLINE' && data.payment?.checkout_url) { window.location.assign(data.payment.checkout_url); return; }
-      setNotice(method === 'ONLINE' ? 'Renovación iniciada. Se confirmará cuando Mercado Pago apruebe el pago.' : 'Renovación solicitada. Se aplicará cuando el club confirme tu pago.');
+      setNotice(method === 'ONLINE' ? `Renovación iniciada. ${provider === 'TRANSBANK' ? 'Transbank' : 'Mercado Pago'} debe confirmar el pago antes de activar la membresía.` : 'Renovación solicitada. Se aplicará cuando el club confirme tu pago.');
       await load();
     } catch (requestError) { setError(getErrorMessage(requestError)); await load(); }
     finally { setBusy(false); }
@@ -181,15 +220,19 @@ export function MembershipsPage() {
   const pending = memberships.filter((item) => item.status === 'PENDING');
 
   return <section className="page-stack">
-    <header className="page-heading"><div><p className="eyebrow">PLANES Y PAGOS</p><h1>Membresías</h1><p className="page-description">{isAdmin ? 'Crea los planes de tu club y confirma los pagos de los deportistas.' : 'Revisa los planes de tu club y el estado de tu membresía.'}</p></div>{isAdmin && <button className="button primary-btn" onClick={() => { setEditor({}); setFormError(''); }}><Plus size={16} /> Crear plan</button>}</header>
+    <header className="page-heading"><div><p className="eyebrow">PLANES Y PAGOS</p><h1>Membresías</h1><p className="page-description">{isAdmin ? 'Crea planes y asigna membresías a deportistas de tu club.' : isTrainer ? 'Consulta las membresías de tus deportistas asignados.' : 'Revisa los planes de tu club y el estado de tu membresía.'}</p></div>{isAdmin && <div className="heading-actions"><button className="button button-secondary" onClick={() => { setMembershipEditor(true); setAssignmentError(''); }}><Plus size={16} /> Asignar membresía</button><button className="button primary-btn" onClick={() => { setEditor({}); setFormError(''); }}><Plus size={16} /> Crear plan</button></div>}</header>
     {notice && <div className="notice notice-success" role="status">{notice}<button className="icon-button" onClick={() => setNotice('')} aria-label="Cerrar aviso"><X size={15} /></button></div>}
     {error && <div className="notice notice-error">{error}</div>}
     {loading ? <div className="empty-state">Cargando membresías...</div> : <>
       {isAdmin && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">REGLAS DE RESERVA</p><h2>Exigir membresía activa para reservar clases</h2></div></div>
         <label className="field-label"><span>Estado de la regla</span><select className="control" value={requireMembership ? 'on' : 'off'} disabled={busy} onChange={(event) => saveRequirement(event.target.value === 'on')}><option value="off">Desactivado</option><option value="on">Activado</option></select></label>
         <p className="page-description">{requireMembership ? 'Solo los deportistas con una membresía activa y vigente en la fecha de la clase pueden reservar.' : 'Cualquier deportista activo puede reservar, tenga o no membresía.'}</p>
-      </section>}      {!isAdmin && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">MI MEMBRESÍA</p><h2>{openMembership ? openMembership.plan_name : 'Sin membresía activa'}</h2></div>{openMembership && <span className="status-pill">{statusLabels[openMembership.status]}</span>}</div>
-        {openMembership ? <p className="page-description">{openMembership.status === 'PENDING' ? (openPayment ? 'Esperando la confirmación del pago de Mercado Pago.' : 'Esperando que el club confirme tu pago.') : `Vigente del ${dateLabel(openMembership.start_date)} al ${dateLabel(openMembership.end_date)}.`}</p> : <p className="page-description">{memberships[0] ? `Tu última membresía quedó ${statusLabels[memberships[0].status].toLowerCase()}${memberships[0].review_note ? `: ${memberships[0].review_note}` : '.'}` : 'Elige un plan para comenzar.'}</p>}
+    </section>}      {user?.role === 'ATHLETE' && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">MI MEMBRESÍA</p><h2>{openMembership ? openMembership.plan_name : 'Sin membresía activa'}</h2></div>{openMembership && <span className="status-pill">{statusLabels[openMembership.status]}</span>}</div>
+        {openMembership ? <div className="membership-summary-details">
+          <p className="page-description">{openMembership.status === 'PENDING' ? (openPayment ? `Esperando la confirmación de ${openPayment.payment_provider === 'TRANSBANK' ? 'Transbank' : 'Mercado Pago'}.` : 'Esperando que el club confirme tu pago.') : `Vigente del ${dateLabel(openMembership.start_date)} al ${dateLabel(openMembership.end_date)}.`}</p>
+          <p className="page-description">{openMembership.club_name || user?.club?.name} · {money(openMembership.price_paid, openMembership.currency)}{openMembership.days_remaining !== null && openMembership.days_remaining !== undefined ? ` · ${openMembership.days_remaining} días restantes` : ''}</p>
+          {openMembership.payment_status && <p className="page-description">Último pago: {paymentLabels[openMembership.payment_status] || openMembership.payment_status} ({openMembership.payment_provider === 'TRANSBANK' ? 'Transbank' : 'Mercado Pago'}).</p>}
+        </div> : <p className="page-description">{memberships[0] ? `Tu última membresía quedó ${statusLabels[memberships[0].status].toLowerCase()}${memberships[0].review_note ? `: ${memberships[0].review_note}` : '.'}` : 'Elige un plan para comenzar.'}</p>}
         {openPayment?.checkout_url && <a className="button primary-btn" href={openPayment.checkout_url}><CreditCard size={15} /> Continuar pago</a>}
         {openPayment && <button className="button button-secondary" disabled={busy} onClick={load}>Actualizar estado</button>}
         {openPayment && <button className="button button-secondary" disabled={busy} onClick={() => cancelPayment(openPayment)}>Cancelar pago</button>}
@@ -199,8 +242,9 @@ export function MembershipsPage() {
         {canRenew && !pendingMembership && <div className="renewal-box">
           <p className="page-description">{renewal.state === 'EXPIRED' ? `Tu membresía venció el ${dateLabel(renewal.end_date)}. Si renuevas, comenzará el día en que se confirme el pago.` : `Tu membresía vence el ${dateLabel(renewal.end_date)} (${renewal.days_left === 0 ? 'hoy' : `en ${renewal.days_left} día${renewal.days_left === 1 ? '' : 's'}`}). Si renuevas ahora, la nueva comienza el ${dateLabel(renewal.next_start_date)} y no pierdes días.`}</p>
           {renewal.plan ? <div className="training-actions">
-            {onlineAvailable && <button className="button primary-btn" disabled={busy} onClick={() => renew('ONLINE')}><CreditCard size={15} /> Renovar {renewal.plan.name} con Mercado Pago</button>}
-            <button className={onlineAvailable ? 'button button-secondary' : 'button primary-btn'} disabled={busy} onClick={() => renew('MANUAL')}>{onlineAvailable ? 'Renovar y pagar al club' : `Renovar ${renewal.plan.name}`}</button>
+            {onlineAvailable && <button className="button primary-btn" disabled={busy} onClick={() => renew('ONLINE', undefined, 'MERCADO_PAGO')}><CreditCard size={15} /> Renovar {renewal.plan.name} con Mercado Pago</button>}
+            {transbankAvailable && <button className="button button-secondary" disabled={busy} onClick={() => renew('ONLINE', undefined, 'TRANSBANK')}><CreditCard size={15} /> Renovar {renewal.plan.name} con Transbank Webpay Plus</button>}
+            <button className={onlineAvailable || transbankAvailable ? 'button button-secondary' : 'button primary-btn'} disabled={busy} onClick={() => renew('MANUAL')}>{onlineAvailable || transbankAvailable ? 'Renovar y pagar al club' : `Renovar ${renewal.plan.name}`}</button>
           </div> : <p className="page-description">Tu plan anterior ya no está disponible. Elige otro plan abajo para renovar.</p>}
         </div>}
         {!canRenew && renewal?.reason && !pendingMembership && !scheduledMembership && renewal.state === 'ACTIVE' && <p className="page-description">{renewal.reason}</p>}
@@ -211,33 +255,37 @@ export function MembershipsPage() {
         <p className="training-description">{plan.description || plan.benefits || 'Plan del club.'}</p>
         <div className="training-meta"><span><CreditCard size={15} />{money(plan.price, plan.currency)}</span><span>{plan.weekly_class_limit ? `${plan.weekly_class_limit} clases/semana` : 'Clases sin límite'}</span>{isAdmin && <span>{plan.active_members} activos{plan.is_active ? '' : ' · Inactivo'}</span>}</div>
         {plan.benefits && plan.description && <p className="training-description">{plan.benefits}</p>}
-        {!isAdmin && <div className="training-actions">
+        {user?.role === 'ATHLETE' && <div className="training-actions">
           {canRenew && !pendingMembership ? <>
             {onlineAvailable && <button className="button primary-btn" disabled={busy} onClick={() => renew('ONLINE', plan)}><CreditCard size={15} /> Renovar con este plan (Mercado Pago)</button>}
-            <button className={onlineAvailable ? 'button button-secondary' : 'button primary-btn'} disabled={busy} onClick={() => renew('MANUAL', plan)}>{onlineAvailable ? 'Renovar y pagar al club' : 'Renovar con este plan'}</button>
+            {transbankAvailable && <button className="button button-secondary" disabled={busy} onClick={() => renew('ONLINE', plan, 'TRANSBANK')}><CreditCard size={15} /> Renovar con este plan (Transbank)</button>}
+            <button className={onlineAvailable || transbankAvailable ? 'button button-secondary' : 'button primary-btn'} disabled={busy} onClick={() => renew('MANUAL', plan)}>{onlineAvailable || transbankAvailable ? 'Renovar y pagar al club' : 'Renovar con este plan'}</button>
           </> : <>
             {onlineAvailable && <button className="button primary-btn" disabled={busy || hasCurrentPlan} onClick={() => payOnline(plan)}><CreditCard size={15} /> Pagar con Mercado Pago</button>}
-            <button className={onlineAvailable ? 'button button-secondary' : 'button primary-btn'} disabled={busy || hasCurrentPlan} onClick={() => requestPlan(plan)}>{hasCurrentPlan ? 'Ya tienes un plan' : onlineAvailable ? 'Solicitar y pagar al club' : 'Solicitar plan'}</button>
+            {transbankAvailable && <button className="button button-secondary" disabled={busy || hasCurrentPlan} onClick={() => payOnline(plan, 'TRANSBANK')}><CreditCard size={15} /> Pagar con Transbank Webpay Plus</button>}
+            <button className={onlineAvailable || transbankAvailable ? 'button button-secondary' : 'button primary-btn'} disabled={busy || hasCurrentPlan} onClick={() => requestPlan(plan)}>{hasCurrentPlan ? 'Ya tienes un plan' : onlineAvailable || transbankAvailable ? 'Solicitar y pagar al club' : 'Solicitar plan'}</button>
           </>}
         </div>}
       </article>)}{!plans.length && <div className="surface-panel empty-state">{isAdmin ? 'Aún no creas planes. Crea el primero para que tus deportistas puedan contratarlo.' : 'Tu club todavía no publica planes.'}</div>}</div>
-      <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">{isAdmin ? 'PAGOS Y VENCIMIENTOS' : 'HISTORIAL'}</p><h2>{isAdmin ? `Membresías (${pending.length} por confirmar)` : 'Mis membresías'}</h2></div></div>
+      <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">{isAdmin ? 'PAGOS Y VENCIMIENTOS' : 'HISTORIAL'}</p><h2>{isAdmin ? `Membresías (${pending.length} por confirmar)` : isTrainer ? 'Membresías de mis deportistas' : 'Mis membresías'}</h2></div></div>
         <div className="closed-training-list">{memberships.map((item) => <div key={item.id}>
-          <span>{isAdmin ? `${item.athlete_name} · ` : ''}{item.plan_name}{item.is_renewal ? ' (renovación)' : ''} · {money(item.price_paid, item.currency)}</span>
+          <span>{isAdmin || isTrainer ? `${item.athlete_name} · ` : ''}{item.plan_name}{item.is_renewal ? ' (renovación)' : ''} · {money(item.price_paid, item.currency)}</span>
           <span>{item.end_date ? `${item.status === 'SCHEDULED' ? `Desde ${dateLabel(item.start_date)} hasta` : 'Hasta'} ${dateLabel(item.end_date)}` : dateLabel(item.created_at?.slice(0, 10))}</span>
           <span className="status-pill">{statusLabels[item.status]}</span>
           {isAdmin && item.status === 'PENDING' && <><button className="button primary-btn" disabled={busy} onClick={() => review(item, 'CONFIRM')}><Check size={15} /> Confirmar pago</button><button className="button button-secondary" disabled={busy} onClick={() => review(item, 'REJECT')}>Rechazar</button></>}
           {isAdmin && ['ACTIVE', 'SCHEDULED'].includes(item.status) && <button className="button button-secondary" disabled={busy} onClick={() => review(item, 'CANCEL')}>Cancelar</button>}
         </div>)}{!memberships.length && <div className="empty-state">Todavía no hay membresías.</div>}</div>
       </section>
-      {payments.length > 0 && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">MERCADO PAGO</p><h2>Pagos online</h2></div></div>
+      {payments.length > 0 && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">HISTORIAL DE PAGOS</p><h2>Pagos online</h2></div></div>
         <div className="closed-training-list">{payments.map((item) => <div key={item.id}>
-          <span>{isAdmin ? `${item.athlete_name} · ` : ''}{item.plan_name}{item.is_renewal ? ' (renovación)' : ''} · {money(item.amount, item.currency)}</span>
+          <span>{isAdmin || isTrainer ? `${item.athlete_name} · ` : ''}{item.plan_name}{item.is_renewal ? ' (renovación)' : ''} · {money(item.amount, item.currency)}</span>
+          <span>{item.payment_provider === 'TRANSBANK' ? 'Transbank Webpay Plus' : 'Mercado Pago'}</span>
           <span>{dateLabel(item.created_at?.slice(0, 10))}</span>
           <span className="status-pill">{paymentLabels[item.status] || item.status}</span>
         </div>)}</div>
       </section>}
     </>}
     {editor && <PlanDialog plan={editor.id ? editor : undefined} onClose={() => setEditor(null)} onSave={savePlan} busy={busy} error={formError} />}
+    {membershipEditor && <AssignMembershipDialog athletes={athletes} plans={plans} onClose={() => setMembershipEditor(false)} onSave={assignMembership} busy={busy} error={assignmentError} />}
   </section>;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { api } from '../api';
 import { clubId, isStaff, useAuth } from '../auth/AuthContext';
@@ -14,18 +14,18 @@ async function loadCompetition(user) {
     api.get('/competitions/matches/')
   ]);
   let athletes = [];
-  let directory = [];
+  let rivalClubs = [];
   if (isStaff(user)) {
-    [athletes, directory] = await Promise.all([
+    [athletes, rivalClubs] = await Promise.all([
       api.readCollection('/athletes/?status=ACTIVE'),
-      api.get('/competitions/directory/')
+      api.get('/competitions/rival-clubs/')
     ]);
   }
   return {
     requests: Array.isArray(requests) ? requests : [],
     matches: Array.isArray(matches) ? matches : [],
     athletes: athletes.filter((athlete) => athlete.status === 'ACTIVE'),
-    directory: Array.isArray(directory) ? directory : []
+    rivalClubs: Array.isArray(rivalClubs) ? rivalClubs : []
   };
 }
 
@@ -151,16 +151,29 @@ function RequestCard({ request, canReview, onAction }) {
 function ProposeForm({ data, user, onDone }) {
   const role = user.role;
   const own = data.athletes.filter((a) => a.is_competitor && (role === 'ADMIN' || a.assigned_trainer === user.id));
-  const [form, setForm] = useState({ challenger_athlete: null, opponent_athlete: null, fight_date: '', event: '', location: '', category: '' });
+  const [form, setForm] = useState({ challenger_athlete: null, opponent_club: null, opponent_athlete: null, fight_date: '', event: '', location: '', category: '' });
+  const [rivalAthletes, setRivalAthletes] = useState([]);
+  const [loadingRivalAthletes, setLoadingRivalAthletes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
+  useEffect(() => {
+    let cancelled = false;
+    setRivalAthletes([]);
+    if (!form.opponent_club) return undefined;
+    setLoadingRivalAthletes(true);
+    api.get(`/competitions/directory/?club=${encodeURIComponent(form.opponent_club)}`)
+      .then((rows) => { if (!cancelled) setRivalAthletes(Array.isArray(rows) ? rows : []); })
+      .catch((err) => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoadingRivalAthletes(false); });
+    return () => { cancelled = true; };
+  }, [form.opponent_club]);
 
   if (!own.length) return <EmptyState icon="people-outline" title="Sin competidores propios" message="Aprueba o solicita a un deportista como competidor para poder proponer combates." />;
-  if (!data.directory.length) return <EmptyState icon="shield-outline" title="Sin rivales disponibles" message="Aún no hay competidores activos en otros clubes." />;
+  if (!data.rivalClubs.length) return <EmptyState icon="shield-outline" title="Sin clubes rivales disponibles" message="No hay otros clubes aprobados y activos para proponer un combate." />;
 
   const submit = async () => {
-    if (!form.challenger_athlete || !form.opponent_athlete) return setError('Selecciona tu competidor y el rival.');
+    if (!form.challenger_athlete || !form.opponent_club || !form.opponent_athlete) return setError('Selecciona tu competidor, el club rival y su peleador.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.fight_date)) return setError('Escribe la fecha con formato AAAA-MM-DD.');
     setBusy(true);
     setError('');
@@ -179,8 +192,12 @@ function ProposeForm({ data, user, onDone }) {
       <Banner>{error}</Banner>
       <SectionTitle>Tu competidor</SectionTitle>
       <Segmented options={own.map((a) => ({ value: a.id, label: a.display_name || a.full_name || a.name || `#${a.id}` }))} value={form.challenger_athlete} onChange={set('challenger_athlete')} />
-      <SectionTitle>Rival (otro club)</SectionTitle>
-      <Segmented options={data.directory.map((row) => ({ value: row.id, label: `${row.name} · ${row.club_name}` }))} value={form.opponent_athlete} onChange={set('opponent_athlete')} />
+      <SectionTitle>Tu club: {user.club?.name || 'Club'}</SectionTitle>
+      <SectionTitle>Club rival</SectionTitle>
+      <Segmented options={data.rivalClubs.map((club) => ({ value: club.id, label: `${club.name} (${club.competitor_count})` }))} value={form.opponent_club} onChange={(clubId) => setForm((prev) => ({ ...prev, opponent_club: clubId, opponent_athlete: null }))} />
+      <SectionTitle>Peleador rival</SectionTitle>
+      {loadingRivalAthletes ? <Text style={font.small}>Cargando peleadores...</Text> : <Segmented options={rivalAthletes.map((row) => ({ value: row.id, label: row.name }))} value={form.opponent_athlete} onChange={set('opponent_athlete')} />}
+      {form.opponent_club && !loadingRivalAthletes && !rivalAthletes.length ? <Text style={[font.small, { marginBottom: spacing.sm }]}>Este club todavía no tiene peleadores activos aprobados como competidores.</Text> : null}
       <Field label="Fecha (AAAA-MM-DD)" value={form.fight_date} onChangeText={set('fight_date')} placeholder={todayISO()} autoCapitalize="none" />
       <Field label="Evento" value={form.event} onChangeText={set('event')} />
       <Field label="Lugar" value={form.location} onChangeText={set('location')} />

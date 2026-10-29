@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Bell, Check, CheckCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api, getErrorMessage, readCollection } from '../services/api';
 
 const typeNames = { INFO: 'General', TRAINING: 'Clases', EVALUATION: 'Evaluaciones', COMPETITION: 'Competencias', ALERT: 'Alertas' };
 
 export function NotificationsPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,7 @@ export function NotificationsPage() {
     <div className="notification-list">{loading ? <div className="empty-state">Cargando notificaciones...</div> : items.length ? items.map((item) => <article className={`notification-row ${item.is_read ? '' : 'unread'}`} key={item.id}>
       <div className="notification-symbol"><Bell size={17} /></div>
       <div className="notification-copy"><div className="notification-meta"><span>{typeNames[item.notification_type] || item.notification_type}</span><time>{new Date(item.created_at).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</time></div><h2>{item.title}</h2><p>{item.message}</p></div>
+      {/membres[ií]a|membres[ií]as/i.test(`${item.title} ${item.message}`) && <button className="button button-secondary notification-action" onClick={() => { markRead(item); navigate('/memberships'); }}>Ver membresía / renovar</button>}
       {!item.is_read && <button className="icon-button table-action" title="Marcar como leída" aria-label="Marcar como leída" onClick={() => markRead(item)}><Check size={16} /></button>}
     </article>) : <div className="surface-panel empty-state">No tienes notificaciones por ahora.</div>}</div>
   </section>;

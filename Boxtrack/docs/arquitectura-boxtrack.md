@@ -206,6 +206,61 @@ Reglas de trabajo: conservar el proyecto existente (no recrear módulos, no borr
 | Aplicación móvil | En progreso | `mobile/` (Expo + React Native) con sesión, clases, reservas, membresías, combates y tienda; falta probar en dispositivo físico/emulador nativo y las herramientas del entrenador (asistencia, evaluaciones). |
 | Responsive y UX | Pendiente de auditoría | Revisar tablas, modales y navegación en móvil. |
 
+## 11. Actualización P3: renovaciones, avisos, Webpay y marca por club
+
+La tabla de estado anterior registra la línea base del proyecto. Esta sección documenta la implementación P3 incorporada después de esa auditoría.
+
+### Membresías y renovaciones
+
+- `Membership` conserva cada contratación y enlaza renovaciones mediante `renewal_of`. Los registros y pagos anteriores no se sobrescriben. La API de membresías devuelve `club_name`, `days_remaining`, `payment_status` y `payment_provider` junto con el estado, precio y fechas.
+- El administrador asigna desde `POST /api/memberships/` indicando el deportista y el plan del mismo club. La membresía queda visible para esa cuenta y para su entrenador asignado; no se copia una membresía al usuario ni al navegador.
+- `GET/POST /api/memberships/renewal/` calcula y crea renovaciones. La ventana anticipada sigue siendo de 7 días. El deportista elige un plan y el backend toma su precio y duración.
+- Una renovación anticipada aprobada queda `SCHEDULED` y comienza el día posterior al vencimiento de la membresía actual. Una renovación de una membresía vencida comienza el día en que se confirma el pago. La fecha final sigue la convención existente del sistema: inicio más duración y vigente hasta el día final inclusive.
+- `PENDING` nunca se activa antes de confirmar el pago manualmente o recibir el resultado verificado del proveedor. La base conserva una única membresía `PENDING`, `ACTIVE` y `SCHEDULED` por deportista mediante restricciones separadas.
+- Los entrenadores consultan las membresías y el estado resumido del pago de deportistas asignados a ellos. Solo el deportista comprador y el administrador del club consultan el detalle del pago; el enlace de checkout solo se entrega al comprador.
+
+### Avisos de vencimiento
+
+- `MembershipExpirationNotice` registra de forma única los avisos `DAYS_7`, `DAYS_3`, `DAY_1` y `EXPIRED`; cada aviso también se guarda en `Notification` para web y móvil.
+- El comando `python manage.py send_membership_expiration_notifications` es repetible y utiliza la zona `America/Santiago`. Evita enviar al usuario de otra cuenta/club y deja de avisar por una membresía cuando ya existe una renovación activa o programada.
+- Programar el comando una vez al día a las 08:00 en hora local con Windows Task Scheduler o cron. En Windows, usar `python.exe` como programa, `manage.py send_membership_expiration_notifications` como argumento y `backend/` como directorio de inicio. En Unix, ejecutar desde `backend/` con el intérprete del entorno virtual, por ejemplo `0 8 * * * /ruta/venv/bin/python manage.py send_membership_expiration_notifications`.
+- Al tocar una notificación de membresía en móvil, o usar «Ver membresía / renovar» en web, se abre la pantalla de membresías.
+
+### Combates entre clubes
+
+- `GET /api/competitions/rival-clubs/` entrega clubes aprobados y activos distintos del club actual, incluso si aún no tienen competidores, e incluye su cantidad de competidores activos. Tras elegir el club, `GET /api/competitions/directory/?club=<id>` devuelve sus peleadores activos aprobados como competidores.
+- La web y móvil cargan clubes y peleadores en pasos separados. `POST /api/competitions/matches/` exige `opponent_club`; el backend comprueba que coincide con el club real del deportista rival. Club retador, club rival, aceptación, cancelación, resultados e historiales siguen usando `FightMatch` existente.
+
+### Transbank Webpay Plus de pruebas
+
+- Transbank usa el SDK oficial `transbank-sdk` (`>=6.1.0,<7.0`) y Webpay Plus. La integración está limitada a `IntegrationType.TEST`; no habilita producción.
+- Configurar en `.env`: `TRANSBANK_ENVIRONMENT=TEST`, `TRANSBANK_COMMERCE_CODE` y `TRANSBANK_API_KEY` con credenciales de integración de Transbank. El servidor nunca devuelve estas credenciales a clientes. El SDK inicia transacciones y la ruta `/api/store/payments/transbank/checkout/<token>/` envía el token a Webpay por POST.
+- Transbank vuelve a `POST/GET /api/store/payments/transbank/return/`. El backend consulta el resultado con `Transaction.commit(token)` y contrasta token, monto, buy order y session ID antes de aprobar. Si falta el resultado o hay discrepancias, la membresía sigue pendiente o queda `REVIEW`; un pedido con cobro tardío o discrepante queda `PAYMENT_REVIEW` y genera aviso administrativo.
+- Webpay sirve para membresías, renovaciones y pedidos de tienda. El checkout de Mercado Pago y su único webhook `/api/store/payments/mercadopago/webhook/` siguen en uso; transferencia, comprobante y retiro también se conservan.
+- Con mocks se pueden probar creación y callback. No se afirma una transacción sandbox hasta configurar credenciales de prueba y completar un pago real de integración. No usar credenciales ni endpoints productivos en esta etapa. La futura activación de producción requiere una revisión separada de credenciales, URLs y ambiente.
+- Referencias del proveedor: [SDK oficial Python](https://github.com/transbankdevelopers/transbank-sdk-python), [ejemplo Webpay Plus Python](https://proyecto-ejemplo-python.transbankdevelopers.cl/webpay-plus/) y [referencia oficial Webpay](https://github.com/TransbankDevelopers/transbank-developers-docs/blob/master/referencia/webpay/README.md).
+
+### Personalización visual por club
+
+- `Club` guarda `primary_color`, `accent_color` y el `logo` ya existente. Los campos de color aceptan hex `#RRGGBB`; la carga admite PNG, JPG o WebP hasta 2 MB y 5000 × 5000 píxeles.
+- `GET/PATCH /api/clubs/branding/` solo permite al administrador guardar la marca de su propio club. `/api/auth/profile/` entrega el logo y colores dentro del club anidado, y `GET /api/clubs/` devuelve los mismos valores.
+- Web aplica colores a botones, navegación y encabezado del club; móvil los aplica a botones, navegación y página «Mi club». Cuando no hay imagen se usa el distintivo predeterminado. El color del texto de los botones se calcula para conservar contraste.
+
+### Migraciones y validación
+
+- Migraciones aditivas: `clubs.0005_club_accent_color_club_primary_color`, `memberships.0005_membershippayment_payment_provider_and_more` y `store.0007_order_transbank_authorization_code_and_more`. No eliminan ni modifican filas históricas.
+- Los mapeos físicos en español de columnas nuevas están declarados en `apps/common/models.py`.
+- Suite focalizada de pagos y reglas: `python manage.py test apps.memberships apps.store apps.clubs apps.competitions`. Las pruebas de Transbank son automatizadas con mocks; no reemplazan una prueba real del ambiente de integración.
+
+### Resultado de validación P3 (2026-10-29)
+
+- `python manage.py test --verbosity 1`: 176 pruebas aprobadas en la ejecución final.
+- `python manage.py makemigrations --check` y `python manage.py check`: sin cambios pendientes y sin errores de configuración.
+- `npm run build` en `frontend/`: compilación Vite aprobada; Vite informó avisos de opciones de configuración obsoletas.
+- `npm test -- --runInBand` en `mobile/`: 39 pruebas aprobadas.
+- `npm run export` en `mobile/`: bundle Android de Expo exportado. Esto no equivale a generar un APK ni a probarlo en un emulador o dispositivo.
+- La suite de Transbank usa mocks y verifica importes, estados, callbacks e idempotencia. No se completó una transacción real en el sandbox porque faltan credenciales configuradas.
+
 ## Empezar desde cero (reiniciar datos de desarrollo)
 
 - Hacer una copia de `backend/db.sqlite3` y luego, en `backend`, ejecutar `python manage.py flush --no-input`. Esto borra usuarios, clubes, deportistas, clases, etc.; los roles se vuelven a crear solos al registrar un club.

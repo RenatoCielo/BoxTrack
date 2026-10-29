@@ -3,16 +3,20 @@ import hmac
 import json
 import mimetypes
 import os
+import secrets
 import urllib.error
 import urllib.request
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import urlencode
 
 from django.db import transaction
 from django.db.models import F
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
+from django.utils.html import escape
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -25,6 +29,7 @@ from apps.common.permissions import user_role
 from apps.notifications.models import Notification
 from apps.store.models import Order, OrderItem, Product, StoreSettings
 from apps.store.serializers import OrderSerializer, OrderStatusSerializer, ProductSerializer
+from apps.store.transbank import TransbankUnavailable, clp_amount, response_value, transbank_configured, webpay_transaction
 
 
 class StoreUnavailable(APIException):
@@ -85,6 +90,7 @@ class StoreCheckoutConfigView(APIView):
         store_settings = StoreSettings.objects.filter(club_id=request.user.club_id).first()
         return Response({
             'mercado_pago_available': online_payment_available,
+            'transbank_available': transbank_configured(),
             'bank_transfer_instructions': store_settings.bank_transfer_instructions if store_settings else '',
         })
 
@@ -112,7 +118,7 @@ def release_order_stock(order):
 def release_expired_checkouts(club_id):
     expired_orders = Order.objects.filter(
         club_id=club_id,
-        payment_method='MERCADO_PAGO',
+        payment_method__in=['MERCADO_PAGO', 'TRANSBANK'],
         status='PENDING',
         stock_released=False,
         expires_at__lte=timezone.now(),
@@ -153,6 +159,8 @@ class OrderListCreateView(APIView):
             'MERCADOPAGO_NOTIFICATION_URL',
         )):
             raise StoreUnavailable()
+        if payment_method == 'TRANSBANK' and not transbank_configured():
+            raise StoreUnavailable('Transbank Webpay Plus no está configurado para pruebas.')
 
         quantities = {}
         for entry in items_data:
@@ -184,7 +192,7 @@ class OrderListCreateView(APIView):
                 user=request.user,
                 payment_method=payment_method,
                 notes=request.data.get('notes', '').strip(),
-                expires_at=timezone.now() + timedelta(minutes=30) if payment_method == 'MERCADO_PAGO' else None,
+                expires_at=timezone.now() + timedelta(minutes=30) if payment_method in ('MERCADO_PAGO', 'TRANSBANK') else None,
             )
             total = 0
             for product in products:
@@ -201,6 +209,8 @@ class OrderListCreateView(APIView):
                 )
                 Product.objects.filter(pk=product.pk).update(stock=F('stock') - quantity)
             order.total = total
+            if payment_method == 'TRANSBANK':
+                clp_amount(total)
             order.save(update_fields=['total', 'updated_at'])
 
         if payment_method == 'MERCADO_PAGO':
@@ -217,6 +227,32 @@ class OrderListCreateView(APIView):
                 if isinstance(error, StoreUnavailable):
                     raise
                 raise StoreUnavailable('No se pudo iniciar el pago online. No se realizó el cobro; vuelve a intentarlo.') from error
+
+        if payment_method == 'TRANSBANK':
+            try:
+                order.transbank_buy_order = f'BTO{order.pk}{secrets.token_hex(6)}'[:26]
+                order.transbank_session_id = f'BTOS{request.user.pk}{secrets.token_hex(8)}'[:61]
+                order.save(update_fields=['transbank_buy_order', 'transbank_session_id', 'updated_at'])
+                callback_url = request.build_absolute_uri(reverse('transbank-return'))
+                response = webpay_transaction().create(
+                    order.transbank_buy_order, order.transbank_session_id, clp_amount(order.total), callback_url,
+                )
+                token = response_value(response, 'token')
+                provider_url = response_value(response, 'url')
+                if not token or not provider_url:
+                    raise TransbankUnavailable('Transbank no devolvió una sesión Webpay válida.')
+                order.transbank_token = str(token)
+                order.transbank_url = str(provider_url)
+                order.checkout_url = request.build_absolute_uri(reverse('transbank-checkout', args=[token]))
+                order.save(update_fields=['transbank_token', 'transbank_url', 'checkout_url', 'updated_at'])
+            except Exception as error:
+                with transaction.atomic():
+                    order.status = 'CANCELLED'
+                    order.save(update_fields=['status', 'updated_at'])
+                    release_order_stock(order)
+                if isinstance(error, StoreUnavailable):
+                    raise
+                raise StoreUnavailable('No se pudo iniciar el pago Transbank de pruebas; no se completó el pedido.') from error
 
         if payment_method == 'BANK_TRANSFER':
             Notification.objects.create(
@@ -249,6 +285,10 @@ class OrderDetailView(generics.RetrieveUpdateAPIView):
             serializer = self.get_serializer(order, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             new_status = serializer.validated_data.get('status', order.status)
+            if (order.payment_method in ('MERCADO_PAGO', 'TRANSBANK')
+                    and order.status in ('PENDING', 'PAYMENT_REVIEW')
+                    and new_status in ('PAID', 'READY', 'COMPLETED')):
+                raise ValidationError({'status': 'Los pagos online solo pueden completarse después de la confirmación del proveedor.'})
             if order.payment_method == 'BANK_TRANSFER' and new_status in ('PAID', 'READY', 'COMPLETED') and order.proof_status != 'APPROVED':
                 raise ValidationError({'status': 'Primero debes aprobar el comprobante de transferencia.'})
             if order.status in ('PAID', 'READY', 'COMPLETED') and new_status == 'CANCELLED':
@@ -528,3 +568,207 @@ class MercadoPagoWebhookView(APIView):
                 order.payment_reference = str(payment.get('id', data_id))
                 order.save(update_fields=['status', 'payment_reference', 'updated_at'])
         return Response({'received': True}, status=status.HTTP_200_OK)
+
+
+class TransbankCheckoutView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        order = Order.objects.filter(transbank_token=token, payment_method='TRANSBANK', status='PENDING').first()
+        payment = None
+        if order is None:
+            from apps.memberships.models import MembershipPayment
+            payment = MembershipPayment.objects.filter(transbank_token=token, payment_provider='TRANSBANK', status='PENDING').first()
+        provider_url = order.transbank_url if order else payment.transbank_url if payment else ''
+        if not provider_url:
+            return HttpResponse('Checkout Transbank no disponible.', status=404)
+        safe_url = escape(provider_url)
+        safe_token = escape(token)
+        return HttpResponse(
+            '<!doctype html><html lang="es"><meta charset="utf-8"><title>Conectando con Webpay</title>'
+            f'<form id="webpay" action="{safe_url}" method="post"><input type="hidden" name="token_ws" value="{safe_token}"></form>'
+            '<p>Conectando con Transbank Webpay Plus…</p><script>document.getElementById("webpay").submit()</script></html>',
+            content_type='text/html; charset=utf-8',
+        )
+
+
+class TransbankReturnView(APIView):
+    """Webpay callback. The SDK commit result, not the browser return, settles the purchase."""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return self._handle(request)
+
+    def post(self, request):
+        return self._handle(request)
+
+    def _redirect(self, resource, result):
+        frontend = os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')
+        page = 'store' if resource == 'order' else 'memberships'
+        query = urlencode({'payment': result, 'provider': 'transbank'})
+        return HttpResponseRedirect(f'{frontend}/{page}?{query}')
+
+    def _handle(self, request):
+        payload = request.data if request.method == 'POST' else request.query_params
+        token = str(payload.get('token_ws') or '')
+        aborted_token = str(payload.get('TBK_TOKEN') or '')
+        buy_order = str(payload.get('TBK_ORDEN_COMPRA') or '')
+        if not token and not aborted_token:
+            return Response({'detail': 'Retorno Transbank incompleto.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.memberships.models import MembershipPayment
+        payment = MembershipPayment.objects.filter(
+            transbank_token=token or aborted_token, payment_provider='TRANSBANK',
+        ).first() if (token or aborted_token) else None
+        order = Order.objects.filter(transbank_token=token or aborted_token, payment_method='TRANSBANK').first() if (token or aborted_token) else None
+        if payment is None and order is None and buy_order:
+            payment = MembershipPayment.objects.filter(transbank_buy_order=buy_order, payment_provider='TRANSBANK').first()
+            order = Order.objects.filter(transbank_buy_order=buy_order, payment_method='TRANSBANK').first() if payment is None else None
+        if payment is None and order is None:
+            return Response({'detail': 'Transacción Transbank no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        resource = 'membership' if payment else 'order'
+        if not token:
+            if payment:
+                with transaction.atomic():
+                    payment = MembershipPayment.objects.select_for_update().select_related('membership').get(pk=payment.pk)
+                    if payment.status == 'PENDING':
+                        payment.status = 'CANCELLED'
+                        payment.provider_status = 'ABORTED'
+                        payment.save(update_fields=['status', 'provider_status', 'updated_at'])
+                        if payment.membership.status == 'PENDING':
+                            payment.membership.status = 'CANCELLED'
+                            payment.membership.save(update_fields=['status', 'updated_at'])
+            else:
+                with transaction.atomic():
+                    order = Order.objects.select_for_update().get(pk=order.pk)
+                    if order.status == 'PENDING':
+                        order.status = 'CANCELLED'
+                        order.save(update_fields=['status', 'updated_at'])
+                        release_order_stock(order)
+            return self._redirect(resource, 'failure')
+
+        if payment:
+            return self._commit_membership(payment.pk, token)
+        return self._commit_order(order.pk, token)
+
+    def _commit_membership(self, payment_id, token):
+        from apps.memberships.models import MembershipPayment
+        from apps.memberships.payments import process_membership_payment
+
+        with transaction.atomic():
+            payment = MembershipPayment.objects.select_for_update().select_related('membership', 'club').get(pk=payment_id)
+            if payment.transbank_token != token:
+                return self._redirect('membership', 'failure')
+            if payment.status in ('APPROVED', 'REFUNDED') or payment.provider_status in ('AMOUNT_MISMATCH', 'REFERENCE_MISMATCH'):
+                return self._redirect('membership', 'success' if payment.status == 'APPROVED' else 'failure')
+            try:
+                response = webpay_transaction().commit(token)
+            except Exception:
+                return self._redirect('membership', 'pending')
+            result = {
+                key: response_value(response, key) for key in (
+                    'status', 'response_code', 'amount', 'buy_order', 'session_id', 'authorization_code',
+                )
+            }
+            try:
+                amount_ok = Decimal(str(result.get('amount'))) == payment.amount
+            except (InvalidOperation, TypeError):
+                amount_ok = False
+            reference_ok = (str(result.get('buy_order') or '') == payment.transbank_buy_order
+                            and str(result.get('session_id') or '') == payment.transbank_session_id)
+            if not reference_ok or not amount_ok:
+                payment.status = 'REVIEW'
+                payment.provider_status = 'AMOUNT_MISMATCH' if reference_ok else 'REFERENCE_MISMATCH'
+                payment.transbank_authorization_code = str(result.get('authorization_code') or '')
+                payment.save(update_fields=['status', 'provider_status', 'transbank_authorization_code', 'updated_at'])
+                for admin in payment.club.users.filter(role__name='ADMIN', is_active=True):
+                    Notification.objects.create(club=payment.club, user=admin, title='Pago Transbank en revisión', message=f'El pago de membresía #{payment.pk} requiere revisión por discrepancia en la transacción.', notification_type='ALERT')
+                return self._redirect('membership', 'pending')
+            try:
+                response_code = int(result.get('response_code'))
+            except (TypeError, ValueError):
+                response_code = -1
+            approved = str(result.get('status') or '').upper() == 'AUTHORIZED' and response_code == 0
+            verified_payment = {
+                'id': f'TBK:{token}',
+                'external_reference': f'membership:{payment.pk}',
+                'status': 'approved' if approved else 'rejected',
+                'transaction_amount': str(payment.amount),
+                'currency_id': payment.currency,
+            }
+            process_membership_payment(verified_payment, f'TBK:{token}')
+            payment.refresh_from_db()
+            payment.transbank_authorization_code = str(result.get('authorization_code') or '')
+            payment.provider_status = str(result.get('status') or 'REJECTED')
+            payment.save(update_fields=['transbank_authorization_code', 'provider_status', 'updated_at'])
+            settled = payment.status == 'APPROVED'
+        return self._redirect('membership', 'success' if settled else 'pending' if payment.status == 'REVIEW' else 'failure')
+
+    def _commit_order(self, order_id, token):
+        with transaction.atomic():
+            order = Order.objects.select_for_update().select_related('club').get(pk=order_id)
+            if order.transbank_token != token:
+                return self._redirect('order', 'failure')
+            if order.status == 'PAID':
+                return self._redirect('order', 'success')
+            if order.status == 'PAYMENT_REVIEW':
+                return self._redirect('order', 'pending')
+            try:
+                response = webpay_transaction().commit(token)
+            except Exception:
+                return self._redirect('order', 'pending')
+            result = {
+                key: response_value(response, key) for key in (
+                    'status', 'response_code', 'amount', 'buy_order', 'session_id', 'authorization_code',
+                )
+            }
+            reference_ok = (str(result['buy_order']) == order.transbank_buy_order
+                            and str(result['session_id']) == order.transbank_session_id)
+            try:
+                amount_ok = Decimal(str(result.get('amount'))) == order.total
+            except (InvalidOperation, TypeError):
+                amount_ok = False
+            try:
+                response_code = int(result.get('response_code'))
+            except (TypeError, ValueError):
+                response_code = -1
+            approved = str(result.get('status') or '').upper() == 'AUTHORIZED' and response_code == 0
+            if not reference_ok or not amount_ok:
+                order.status = 'PAYMENT_REVIEW'
+                order.transbank_authorization_code = str(result.get('authorization_code') or '')
+                order.payment_reference = 'TRANSBANK_REVIEW'
+                order.save(update_fields=['status', 'transbank_authorization_code', 'payment_reference', 'updated_at'])
+                for admin in order.club.users.filter(role__name='ADMIN', is_active=True):
+                    Notification.objects.create(club=order.club, user=admin, title='Pago Transbank en revisión', message=f'El pedido #{order.pk} requiere revisión por discrepancia en la transacción.', notification_type='ALERT')
+                return self._redirect('order', 'pending')
+            if order.status == 'CANCELLED':
+                if approved:
+                    order.status = 'PAYMENT_REVIEW'
+                    order.transbank_authorization_code = str(result.get('authorization_code') or '')
+                    order.payment_reference = f'TBK_REVIEW:{token}'
+                    for admin in order.club.users.filter(role__name='ADMIN', is_active=True):
+                        Notification.objects.create(club=order.club, user=admin, title='Pago tardío Transbank', message=f'El pedido #{order.pk} fue autorizado después de cancelarse; requiere revisión manual.', notification_type='ALERT')
+                    order.save(update_fields=['status', 'transbank_authorization_code', 'payment_reference', 'updated_at'])
+                    return self._redirect('order', 'pending')
+                return self._redirect('order', 'failure')
+            if approved and order.status == 'PENDING' and not order.stock_released:
+                order.status = 'PAID'
+                order.transbank_authorization_code = str(result.get('authorization_code') or '')
+                order.payment_reference = f'TBK:{token}'
+                order.save(update_fields=['status', 'transbank_authorization_code', 'payment_reference', 'updated_at'])
+                return self._redirect('order', 'success')
+            if approved:
+                order.status = 'PAYMENT_REVIEW'
+                order.transbank_authorization_code = str(result.get('authorization_code') or '')
+                order.payment_reference = f'TBK_REVIEW:{token}'
+                for admin in order.club.users.filter(role__name='ADMIN', is_active=True):
+                    Notification.objects.create(club=order.club, user=admin, title='Pago tardío Transbank', message=f'El pedido #{order.pk} fue autorizado después de liberar su inventario; requiere revisión.', notification_type='ALERT')
+                order.save(update_fields=['status', 'transbank_authorization_code', 'payment_reference', 'updated_at'])
+                return self._redirect('order', 'pending')
+            order.status = 'CANCELLED'
+            order.save(update_fields=['status', 'updated_at'])
+            release_order_stock(order)
+        return self._redirect('order', 'failure')

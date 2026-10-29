@@ -7,6 +7,17 @@ function getSavedTheme() {
   return localStorage.getItem('boxtrack.theme') === 'dark' ? 'dark' : 'light';
 }
 
+function validHex(value, fallback) {
+  return /^#[0-9a-f]{6}$/i.test(value || '') ? value : fallback;
+}
+
+function contrastColor(hex) {
+  const channels = hex.slice(1).match(/.{2}/g).map((part) => parseInt(part, 16) / 255);
+  const luminance = channels.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  return luminance > 0.42 ? '#161616' : '#ffffff';
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
@@ -22,6 +33,16 @@ export function AuthProvider({ children }) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('boxtrack.theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const primary = validHex(user?.club?.primary_color, '#b21f32');
+    const accent = validHex(user?.club?.accent_color, '#151518');
+    root.style.setProperty('--club-primary', primary);
+    root.style.setProperty('--club-primary-contrast', contrastColor(primary));
+    root.style.setProperty('--club-accent', accent);
+    root.style.setProperty('--club-accent-contrast', contrastColor(accent));
+  }, [user?.club?.primary_color, user?.club?.accent_color]);
 
   useEffect(() => {
     let active = true;
@@ -78,6 +99,12 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const updateClub = (clubPatch) => {
+    const updated = { ...user, club: { ...user?.club, ...clubPatch } };
+    setUser(updated);
+    localStorage.setItem('boxtrack.user', JSON.stringify(updated));
+  };
+
   const changePassword = async (currentPassword, newPassword) => {
     await api.post('/auth/password/', {
       current_password: currentPassword,
@@ -96,7 +123,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, theme, setTheme, login, register, updateProfile, changePassword, logout }}>
+    <AuthContext.Provider value={{ user, loading, theme, setTheme, login, register, updateProfile, updateClub, changePassword, logout }}>
       {children}
     </AuthContext.Provider>
   );

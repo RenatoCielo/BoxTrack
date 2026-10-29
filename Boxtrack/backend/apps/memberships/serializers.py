@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.utils import timezone
 
 from apps.memberships.models import Membership, MembershipPayment, MembershipPlan
 
@@ -50,19 +51,36 @@ class MembershipPlanSerializer(serializers.ModelSerializer):
 
 class MembershipSerializer(serializers.ModelSerializer):
     athlete_name = serializers.CharField(source='athlete.display_name', read_only=True)
+    club_name = serializers.CharField(source='club.name', read_only=True)
     is_renewal = serializers.SerializerMethodField()
+    days_remaining = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
+    payment_provider = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
         fields = [
-            'id', 'club', 'athlete', 'athlete_name', 'plan', 'plan_name', 'price_paid', 'currency',
+            'id', 'club', 'club_name', 'athlete', 'athlete_name', 'plan', 'plan_name', 'price_paid', 'currency',
             'duration_days', 'weekly_class_limit', 'status', 'start_date', 'end_date', 'review_note',
-            'renewal_of', 'is_renewal', 'confirmed_at', 'created_at',
+            'renewal_of', 'is_renewal', 'days_remaining', 'payment_status', 'payment_provider', 'confirmed_at', 'created_at',
         ]
         read_only_fields = fields
 
     def get_is_renewal(self, obj):
         return obj.renewal_of_id is not None
+
+    def get_days_remaining(self, obj):
+        if obj.status != 'ACTIVE' or not obj.end_date:
+            return None
+        return max((obj.end_date - timezone.localdate()).days, 0)
+
+    def get_payment_status(self, obj):
+        payment = next(iter(obj.payments.all()), None)
+        return payment.status if payment else None
+
+    def get_payment_provider(self, obj):
+        payment = next(iter(obj.payments.all()), None)
+        return payment.payment_provider if payment else None
 
 
 class MembershipPaymentSerializer(serializers.ModelSerializer):
@@ -75,7 +93,7 @@ class MembershipPaymentSerializer(serializers.ModelSerializer):
         model = MembershipPayment
         fields = [
             'id', 'club', 'membership', 'plan', 'plan_name', 'athlete_name', 'amount', 'currency', 'status',
-            'provider_status', 'checkout_url', 'is_renewal', 'expires_at', 'paid_at', 'created_at',
+            'payment_provider', 'provider_status', 'checkout_url', 'is_renewal', 'expires_at', 'paid_at', 'created_at',
         ]
         read_only_fields = fields
 

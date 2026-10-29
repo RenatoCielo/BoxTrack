@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Text, View } from 'react-native';
+import { useMemo } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { Button } from '../components/ui';
 import { colors, font, spacing } from '../theme';
@@ -20,10 +21,8 @@ import StoreScreen from '../screens/StoreScreen';
 const Tab = createBottomTabNavigator();
 const MoreStack = createNativeStackNavigator();
 
-const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.canvas, primary: colors.red, card: colors.paper, text: colors.ink, border: colors.line } };
-const stackOptions = { headerTintColor: colors.red, headerTitleStyle: { color: colors.ink }, headerBackTitle: 'Atrás' };
-
 function MoreNavigator() {
+  const stackOptions = { headerTintColor: colors.red, headerTitleStyle: { color: colors.ink }, headerBackTitle: 'Atrás' };
   return (
     <MoreStack.Navigator screenOptions={stackOptions}>
       <MoreStack.Screen name="MoreHome" component={MoreScreen} options={{ headerShown: false }} />
@@ -45,7 +44,7 @@ const icons = {
 
 function MainTabs() {
   const { user } = useAuth();
-  const hasMemberships = user.role === 'ADMIN' || user.role === 'ATHLETE';
+  const hasMemberships = user.role === 'ADMIN' || user.role === 'TRAINER' || user.role === 'ATHLETE';
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -69,7 +68,11 @@ function CenterMessage({ children }) {
 }
 
 export default function RootNavigator() {
-  const { status, retry, logout } = useAuth();
+  const { status, retry, logout, user } = useAuth();
+  const navTheme = useMemo(() => ({
+    ...DefaultTheme,
+    colors: { ...DefaultTheme.colors, background: colors.canvas, primary: colors.red, card: colors.paper, text: colors.ink, border: colors.line }
+  }), [user?.club?.primary_color, user?.club?.accent_color]);
 
   if (status === 'loading') {
     return (

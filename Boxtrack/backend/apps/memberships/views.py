@@ -12,11 +12,12 @@ from rest_framework.views import APIView
 from apps.athletes.models import Athlete
 from apps.common.permissions import ClubRolePermission, user_role
 from apps.memberships.models import Membership, MembershipPayment, MembershipPlan, MembershipSettings, expire_overdue_memberships
-from apps.memberships.payments import cancel_pending_payments, expire_pending_payments, start_membership_checkout
+from apps.memberships.payments import cancel_pending_payments, expire_pending_payments, start_membership_checkout, start_transbank_membership_checkout
 from apps.memberships.renewals import activate_pending_membership, create_renewal_membership, renewal_info
 from apps.memberships.serializers import MembershipPaymentSerializer, MembershipPlanSerializer, MembershipSerializer
 from apps.notifications.models import Notification
 from apps.store.views import mercadopago_configured
+from apps.store.transbank import transbank_configured
 
 
 class PlanPermission(ClubRolePermission):
@@ -26,7 +27,7 @@ class PlanPermission(ClubRolePermission):
 
 
 class MembershipPermission(ClubRolePermission):
-    allowed_roles = ('ADMIN', 'ATHLETE')
+    allowed_roles = ('ADMIN', 'TRAINER', 'ATHLETE')
     write_roles = ('ADMIN', 'ATHLETE')
     message = 'No tienes permisos para gestionar membresías.'
 
@@ -80,6 +81,7 @@ class MembershipSettingsView(APIView):
         return Response({
             'require_active_membership': bool(settings_row and settings_row.require_active_membership),
             'mercado_pago_available': online,
+            'transbank_available': transbank_configured(),
         })
 
     def patch(self, request):
@@ -96,11 +98,13 @@ class MembershipListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated, MembershipPermission]
 
     def scoped(self, request):
-        queryset = Membership.objects.select_related('athlete', 'athlete__user')
+        queryset = Membership.objects.select_related('athlete', 'athlete__user', 'club').prefetch_related('payments')
         if not request.user.is_superuser:
             queryset = queryset.filter(club_id=request.user.club_id)
         if user_role(request.user) == 'ATHLETE':
             queryset = queryset.filter(athlete__user=request.user)
+        elif user_role(request.user) == 'TRAINER':
+            queryset = queryset.filter(athlete__assigned_trainer=request.user)
         return queryset
 
     def get(self, request):
@@ -162,6 +166,8 @@ class MembershipReviewView(APIView):
             if decision == 'CONFIRM':
                 if membership.status != 'PENDING':
                     return Response({'detail': 'Solo se puede confirmar una membresía pendiente de pago.'}, status=status.HTTP_409_CONFLICT)
+                if membership.payments.filter(status='PENDING', payment_provider__in=('MERCADO_PAGO', 'TRANSBANK')).exists():
+                    return Response({'detail': 'El pago online se confirma únicamente cuando el proveedor verifica la transacción.'}, status=status.HTTP_409_CONFLICT)
                 activate_pending_membership(membership, confirmed_by=request.user)
             elif decision == 'REJECT':
                 if membership.status != 'PENDING':
@@ -190,12 +196,16 @@ class MembershipPaymentListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated, MembershipPermission]
 
     def get(self, request):
+        if user_role(request.user) == 'TRAINER':
+            raise PermissionDenied('Los entrenadores consultan el estado del pago desde la membresÃ­a asignada.')
         expire_pending_payments(request.user.club_id)
         queryset = MembershipPayment.objects.select_related('membership', 'membership__athlete')
         if not request.user.is_superuser:
             queryset = queryset.filter(club_id=request.user.club_id)
         if user_role(request.user) == 'ATHLETE':
             queryset = queryset.filter(user=request.user)
+        elif user_role(request.user) == 'TRAINER':
+            queryset = queryset.filter(membership__athlete__assigned_trainer=request.user)
         return Response(MembershipPaymentSerializer(queryset, many=True, context={'request': request}).data)
 
     def post(self, request):
@@ -208,7 +218,13 @@ class MembershipPaymentListCreateView(APIView):
             plan_id = int(plan_id)
         except (TypeError, ValueError):
             return Response({'plan': 'Plan no válido.'}, status=status.HTTP_400_BAD_REQUEST)
-        payment, created = start_membership_checkout(request.user, plan_id)
+        provider = str(request.data.get('provider', 'MERCADO_PAGO')).upper()
+        if provider not in ('MERCADO_PAGO', 'TRANSBANK'):
+            return Response({'provider': 'Elige MERCADO_PAGO o TRANSBANK.'}, status=status.HTTP_400_BAD_REQUEST)
+        payment, created = (
+            start_transbank_membership_checkout(request.user, plan_id, request)
+            if provider == 'TRANSBANK' else start_membership_checkout(request.user, plan_id)
+        )
         payment = MembershipPayment.objects.select_related('membership', 'membership__athlete').get(pk=payment.pk)
         return Response(
             MembershipPaymentSerializer(payment, context={'request': request}).data,
@@ -221,12 +237,16 @@ class MembershipPaymentDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated, MembershipPermission]
 
     def get_payment(self, request, pk):
+        if user_role(request.user) == 'TRAINER':
+            raise PermissionDenied('Los entrenadores consultan el estado del pago desde la membresÃ­a asignada.')
         expire_pending_payments(request.user.club_id)
         queryset = MembershipPayment.objects.select_related('membership', 'membership__athlete')
         if not request.user.is_superuser:
             queryset = queryset.filter(club_id=request.user.club_id)
         if user_role(request.user) == 'ATHLETE':
             queryset = queryset.filter(user=request.user)
+        elif user_role(request.user) == 'TRAINER':
+            queryset = queryset.filter(membership__athlete__assigned_trainer=request.user)
         return get_object_or_404(queryset, pk=pk)
 
     def get(self, request, pk):
@@ -272,6 +292,9 @@ class MembershipRenewalView(APIView):
         method = str(request.data.get('method', 'MANUAL')).upper()
         if method not in ('MANUAL', 'ONLINE'):
             return Response({'method': 'Usa MANUAL u ONLINE.'}, status=status.HTTP_400_BAD_REQUEST)
+        provider = str(request.data.get('provider', 'MERCADO_PAGO')).upper()
+        if provider not in ('MERCADO_PAGO', 'TRANSBANK'):
+            return Response({'provider': 'Elige MERCADO_PAGO o TRANSBANK.'}, status=status.HTTP_400_BAD_REQUEST)
         plan_id = request.data.get('plan')
         if plan_id in (None, ''):
             plan_id = None
@@ -282,7 +305,10 @@ class MembershipRenewalView(APIView):
                 return Response({'plan': 'Plan no válido.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if method == 'ONLINE':
-            payment, created = start_membership_checkout(request.user, plan_id, renew=True)
+            payment, created = (
+                start_transbank_membership_checkout(request.user, plan_id, request, renew=True)
+                if provider == 'TRANSBANK' else start_membership_checkout(request.user, plan_id, renew=True)
+            )
             payment = MembershipPayment.objects.select_related('membership', 'membership__athlete').get(pk=payment.pk)
             return Response({
                 'membership': MembershipSerializer(payment.membership).data,

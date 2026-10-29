@@ -52,6 +52,7 @@ function CartPanel({ products, config, onOrdered }) {
 
   const methods = [
     { value: 'MERCADO_PAGO', label: 'Mercado Pago', enabled: config.mercado_pago_available },
+    { value: 'TRANSBANK', label: 'Transbank Webpay Plus', enabled: config.transbank_available },
     { value: 'BANK_TRANSFER', label: 'Transferencia', enabled: Boolean(config.bank_transfer_instructions) },
     { value: 'RESERVE', label: 'Reservar y pagar al retirar', enabled: true }
   ].filter((m) => m.enabled);
@@ -68,6 +69,7 @@ function CartPanel({ products, config, onOrdered }) {
       if (order.checkout_url) await WebBrowser.openBrowserAsync(order.checkout_url);
       onOrdered(selected === 'MERCADO_PAGO'
         ? 'Pedido creado. El pago se confirma cuando Mercado Pago lo notifique al club.'
+        : selected === 'TRANSBANK' ? 'Pedido creado. Transbank confirmará el resultado del pago.'
         : selected === 'BANK_TRANSFER' ? 'Pedido creado. Adjunta tu comprobante en "Pedidos".' : 'Pedido reservado. Págalo al retirarlo.');
     } catch (err) {
       setError(err.message);
@@ -92,7 +94,7 @@ function CartPanel({ products, config, onOrdered }) {
       <SectionTitle>Método de pago</SectionTitle>
       <Segmented options={methods} value={selected} onChange={setMethod} />
       {selected === 'BANK_TRANSFER' ? <Card><Text style={font.body}>{config.bank_transfer_instructions}</Text></Card> : null}
-      {!config.mercado_pago_available ? <Text style={[font.small, { marginBottom: spacing.sm }]}>El pago online no está habilitado en este club.</Text> : null}
+      {!config.mercado_pago_available && !config.transbank_available ? <Text style={[font.small, { marginBottom: spacing.sm }]}>El pago online no está habilitado en este club.</Text> : null}
       <Text style={[font.heading, { marginVertical: spacing.sm }]}>Total: {formatMoney(cartTotal(lines))}</Text>
       <Button title={`Confirmar pedido · ${label('payment', selected)}`} onPress={checkout} loading={busy} />
     </View>

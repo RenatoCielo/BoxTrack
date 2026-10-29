@@ -80,6 +80,33 @@ class MembershipTests(MembershipBase):
         self.assertEqual(response.data['status'], 'PENDING')
         self.assertEqual(str(response.data['price_paid']), '30000.00')
 
+    def test_admin_assignment_is_visible_only_to_the_athlete_and_assigned_trainer(self):
+        self.athlete.assigned_trainer = self.trainer
+        self.athlete.save(update_fields=['assigned_trainer'])
+        self.client.force_authenticate(user=self.admin)
+        assigned = self.client.post(reverse('membership-list-create'), {'athlete': self.athlete.pk, 'plan': self.plan.pk}, format='json')
+        self.assertEqual(assigned.status_code, status.HTTP_201_CREATED, assigned.data)
+        self.assertEqual(assigned.data['club_name'], self.club.name)
+
+        self.client.force_authenticate(user=self.athlete_user)
+        athlete_rows = self.client.get(reverse('membership-list-create')).data
+        self.assertEqual(len(athlete_rows), 1)
+        self.assertEqual((athlete_rows[0]['plan_name'], athlete_rows[0]['club_name']), (self.plan.name, self.club.name))
+        self.assertEqual(athlete_rows[0]['status'], 'PENDING')
+        self.assertIsNone(athlete_rows[0]['days_remaining'])
+
+        self.client.force_authenticate(user=self.trainer)
+        self.assertEqual(len(self.client.get(reverse('membership-list-create')).data), 1)
+        self.client.force_authenticate(user=self.other_admin)
+        self.assertEqual(self.client.get(reverse('membership-list-create')).data, [])
+
+        self.client.force_authenticate(user=self.admin)
+        self.client.post(reverse('membership-review', kwargs={'pk': assigned.data['id']}), {'decision': 'CONFIRM'}, format='json')
+        self.client.force_authenticate(user=self.athlete_user)
+        active = self.client.get(reverse('membership-list-create')).data[0]
+        self.assertEqual(active['status'], 'ACTIVE')
+        self.assertEqual(active['days_remaining'], 30)
+
     def test_cannot_request_plan_of_another_club(self):
         self.assertEqual(self.request_plan(self.other_plan).status_code, status.HTTP_404_NOT_FOUND)
 

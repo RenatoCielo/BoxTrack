@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { api } from '../api';
 import { Badge, Banner, Button, Card, EmptyState, ResourceView, Screen } from '../components/ui';
 import { useResource } from '../hooks/useResource';
@@ -7,6 +8,7 @@ import { colors, font, spacing } from '../theme';
 import { formatDateTime } from '../utils/format';
 
 export default function NotificationsScreen() {
+  const navigation = useNavigation();
   const resource = useResource(() => api.readCollection('/notifications/'), []);
   const [error, setError] = useState('');
   const items = resource.data || [];
@@ -34,6 +36,13 @@ export default function NotificationsScreen() {
     }
   };
 
+  const openNotification = async (item) => {
+    await markRead(item);
+    if (/membres[ií]a|membres[ií]as/i.test(`${item.title} ${item.message}`)) {
+      navigation.getParent()?.navigate('MembershipsTab');
+    }
+  };
+
   return (
     <Screen eyebrow="AVISOS" title="Notificaciones" subtitle={`${unread.length} sin leer`} onRefresh={resource.refresh} refreshing={resource.refreshing}>
       <Banner onClose={() => setError('')}>{error}</Banner>
@@ -44,13 +53,14 @@ export default function NotificationsScreen() {
       >
         {unread.length ? <View style={{ marginBottom: spacing.md }}><Button title="Marcar todas como leídas" variant="secondary" small onPress={markAll} /></View> : null}
         {items.map((item) => (
-          <Pressable key={item.id} onPress={() => markRead(item)} accessibilityRole="button" accessibilityHint="Marca la notificación como leída">
+          <Pressable key={item.id} onPress={() => openNotification(item)} accessibilityRole="button" accessibilityHint="Abre la membresía o marca la notificación como leída">
             <Card tone={item.is_read ? undefined : 'bad'}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={[font.heading, { flex: 1, marginRight: spacing.sm }, item.is_read && { color: colors.inkSoft }]}>{item.title}</Text>
                 {item.is_read ? null : <Badge text="Nueva" tone="bad" />}
               </View>
               <Text style={[font.body, { marginTop: 4 }]}>{item.message}</Text>
+              {/membres[ií]a|membres[ií]as/i.test(`${item.title} ${item.message}`) ? <Text style={[font.small, { marginTop: 6, color: colors.red }]}>Toca para ver tu membresía o renovarla.</Text> : null}
               <Text style={[font.small, { marginTop: 6 }]}>{formatDateTime(item.created_at)}</Text>
             </Card>
           </Pressable>

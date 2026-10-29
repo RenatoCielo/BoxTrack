@@ -22,7 +22,7 @@ class ClubSerializer(serializers.ModelSerializer):
             'id', 'name', 'legal_rut', 'legal_representative_name',
             'legal_representative_rut', 'disciplines', 'verification_status',
             'verification_note', 'description', 'address', 'phone', 'email',
-            'website', 'is_active'
+            'website', 'is_active', 'logo', 'primary_color', 'accent_color'
         ]
 
 

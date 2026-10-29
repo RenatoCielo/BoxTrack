@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, KeyRound, Moon, Save, Sun, UserRound, ShieldCheck } from 'lucide-react';
+import { ChevronDown, KeyRound, Moon, Save, Sun, UserRound, ShieldCheck, Palette } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { getErrorMessage } from '../services/api';
+import { api, getErrorMessage } from '../services/api';
 
 const initialProfile = (user) => ({
   username: user?.username || '',
@@ -15,7 +15,7 @@ const initialProfile = (user) => ({
 });
 
 export function SettingsPage() {
-  const { user, theme, setTheme, updateProfile, changePassword } = useAuth();
+  const { user, theme, setTheme, updateProfile, updateClub, changePassword } = useAuth();
   const [profile, setProfile] = useState(() => initialProfile(user));
   const [passwords, setPasswords] = useState({ current: '', next: '', confirmation: '' });
   const [busy, setBusy] = useState(false);
@@ -23,10 +23,18 @@ export function SettingsPage() {
   const [error, setError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [notice, setNotice] = useState('');
+  const [branding, setBranding] = useState({ primary_color: user?.club?.primary_color || '#D7263D', accent_color: user?.club?.accent_color || '#1F2937' });
+  const [logo, setLogo] = useState(null);
+  const [brandingBusy, setBrandingBusy] = useState(false);
+  const [brandingError, setBrandingError] = useState('');
 
   useEffect(() => {
     setProfile(initialProfile(user));
   }, [user]);
+
+  useEffect(() => {
+    setBranding({ primary_color: user?.club?.primary_color || '#D7263D', accent_color: user?.club?.accent_color || '#1F2937' });
+  }, [user?.club?.primary_color, user?.club?.accent_color]);
 
   const update = (event) => {
     const { name, value, checked, type } = event.target;
@@ -71,6 +79,26 @@ export function SettingsPage() {
     }
   };
 
+  const saveBranding = async (event) => {
+    event.preventDefault();
+    setBrandingBusy(true);
+    setBrandingError('');
+    try {
+      const form = new FormData();
+      form.append('primary_color', branding.primary_color);
+      form.append('accent_color', branding.accent_color);
+      if (logo) form.append('logo', logo);
+      const { data } = await api.patch('/clubs/branding/', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      updateClub(data);
+      setLogo(null);
+      setNotice('La imagen y los colores del club se guardaron.');
+    } catch (requestError) {
+      setBrandingError(getErrorMessage(requestError));
+    } finally {
+      setBrandingBusy(false);
+    }
+  };
+
   return <section className="page-stack settings-page">
     <header className="settings-hero">
       <span className="settings-avatar" aria-hidden="true">{(user?.display_name || user?.username || 'B').slice(0, 1).toUpperCase()}</span>
@@ -85,7 +113,19 @@ export function SettingsPage() {
     {notice && <div className="notice notice-success" role="status">{notice}</div>}
     {error && <div className="notice notice-error" role="alert">{error}</div>}
 
-    <form className="settings-layout" onSubmit={saveProfile}>
+    <div className="settings-layout">
+      {user?.role === 'ADMIN' && <details className="settings-accordion" open>
+        <summary><span className="settings-icon"><Palette size={19} /></span><span className="settings-summary-text"><strong>Imagen del club</strong><small>Colores y logotipo para las cuentas del equipo</small></span><ChevronDown size={18} className="settings-chevron" /></summary>
+        <form className="settings-accordion-body settings-field-grid" onSubmit={saveBranding}>
+          <label className="field-label"><span>Color principal</span><input className="control color-control" type="color" value={branding.primary_color} onChange={(event) => setBranding({ ...branding, primary_color: event.target.value })} /></label>
+          <label className="field-label"><span>Color de acento</span><input className="control color-control" type="color" value={branding.accent_color} onChange={(event) => setBranding({ ...branding, accent_color: event.target.value })} /></label>
+          <label className="field-label field-wide"><span>Logotipo (PNG, JPG o WebP, hasta 2 MB)</span><input className="control" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setLogo(event.target.files?.[0] || null)} /></label>
+          {user?.club?.logo && <div className="club-logo-preview"><img src={user.club.logo} alt={`Logotipo de ${user.club.name}`} /><span>Logotipo actual</span></div>}
+          {brandingError && <div className="notice notice-error settings-full-width">{brandingError}</div>}
+          <div className="settings-full-width settings-save-row"><button className="button primary-btn" disabled={brandingBusy}>{brandingBusy ? 'Guardando...' : 'Guardar imagen del club'}</button></div>
+        </form>
+      </details>}
+      <form className="settings-profile-form" onSubmit={saveProfile}>
       <details className="settings-accordion">
         <summary><span className="settings-icon"><UserRound size={19} /></span><span className="settings-summary-text"><strong>Perfil personal</strong><small>Nombre, contacto y apodo</small></span><ChevronDown size={18} className="settings-chevron" /></summary>
         <div className="settings-accordion-body">
@@ -117,7 +157,8 @@ export function SettingsPage() {
       <div className="settings-save-row">
         <button className="button primary-btn" disabled={busy}><Save size={16} />{busy ? 'Guardando...' : 'Guardar cambios'}</button>
       </div>
-    </form>
+      </form>
+    </div>
 
     <details className="settings-accordion">
       <summary><span className="settings-icon"><KeyRound size={19} /></span><span className="settings-summary-text"><strong>Seguridad</strong><small>Cambiar contraseña</small></span><ChevronDown size={18} className="settings-chevron" /></summary>

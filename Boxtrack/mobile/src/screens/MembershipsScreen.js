@@ -10,13 +10,14 @@ import { formatDate, formatMoney, isMembershipValidFor, label, todayISO, tone } 
 import { openPaymentFor, paymentOutcomeMessage } from '../utils/payment';
 
 async function loadMemberships(user) {
-  const [plans, memberships, settings, payments] = await Promise.all([
+  const [plans, memberships, settings, payments, renewal] = await Promise.all([
     api.readCollection('/memberships/plans/'),
     api.get('/memberships/'),
     api.get('/memberships/settings/').catch(() => ({ require_active_membership: false })),
-    api.get('/memberships/payments/').catch(() => [])
+    api.get('/memberships/payments/').catch(() => []),
+    user.role === 'ATHLETE' ? api.get('/memberships/renewal/').catch(() => null) : Promise.resolve(null)
   ]);
-  return { plans, memberships: Array.isArray(memberships) ? memberships : [], settings, payments: Array.isArray(payments) ? payments : [] };
+  return { plans, memberships: Array.isArray(memberships) ? memberships : [], settings, payments: Array.isArray(payments) ? payments : [], renewal };
 }
 
 function MembershipRow({ membership, showAthlete, children }) {
@@ -25,6 +26,7 @@ function MembershipRow({ membership, showAthlete, children }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <View style={{ flex: 1, marginRight: spacing.sm }}>
           <Text style={font.heading}>{membership.plan_name}</Text>
+          {membership.club_name ? <Text style={font.small}>{membership.club_name}</Text> : null}
           {showAthlete ? <Text style={font.small}>{membership.athlete_name}</Text> : null}
         </View>
         <Badge text={label('membership', membership.status)} tone={tone(membership.status)} />
@@ -34,6 +36,8 @@ function MembershipRow({ membership, showAthlete, children }) {
         <KeyValue label="Vigencia" value={membership.start_date ? `${formatDate(membership.start_date)} al ${formatDate(membership.end_date)}` : 'Se define al confirmar el pago'} />
         <KeyValue label="Clases por semana" value={membership.weekly_class_limit ? String(membership.weekly_class_limit) : 'Sin límite'} />
         {membership.review_note ? <KeyValue label="Nota del club" value={membership.review_note} /> : null}
+        {membership.days_remaining !== null && membership.days_remaining !== undefined ? <KeyValue label="Días restantes" value={String(membership.days_remaining)} /> : null}
+        {membership.payment_status ? <KeyValue label="Último pago" value={`${label('paymentStatus', membership.payment_status)} · ${label('payment', membership.payment_provider)}`} /> : null}
         <KeyValue label="Solicitada" value={formatDate(membership.created_at)} />
       </View>
       {children}
@@ -81,6 +85,7 @@ function AdminReview({ membership, onDone }) {
 export default function MembershipsScreen() {
   const { user } = useAuth();
   const isAdmin = user.role === 'ADMIN';
+  const isTrainer = user.role === 'TRAINER';
   const resource = useResource(() => loadMemberships(user), [user.id]);
   useRefreshOnFocus(resource);
   const [notice, setNotice] = useState({ type: 'success', text: '' });
@@ -109,14 +114,35 @@ export default function MembershipsScreen() {
     }
   };
 
-  const payOnline = async (plan) => {
+  const payOnline = async (plan, provider = 'MERCADO_PAGO') => {
     setBusyPlan(plan.id);
     setNotice({ type: 'success', text: '' });
     try {
-      const payment = await api.post('/memberships/payments/', { plan: plan.id });
-      setNotice({ type: 'success', text: 'Completa el pago en Mercado Pago. Tu plan se activará cuando se confirme.' });
+      const payment = await api.post('/memberships/payments/', { plan: plan.id, provider });
+      setNotice({ type: 'success', text: `Completa el pago en ${provider === 'TRANSBANK' ? 'Transbank Webpay Plus' : 'Mercado Pago'}. Tu plan se activará cuando se confirme.` });
       if (payment.checkout_url) await openCheckout(payment.checkout_url);
       else await resource.refresh();
+    } catch (error) {
+      setNotice({ type: 'error', text: error.message });
+    } finally {
+      setBusyPlan(null);
+    }
+  };
+
+  const renew = async (plan, method, provider = 'MERCADO_PAGO') => {
+    setBusyPlan(plan?.id || 'renewal');
+    setNotice({ type: 'success', text: '' });
+    try {
+      const result = await api.post('/memberships/renewal/', {
+        method,
+        ...(plan ? { plan: plan.id } : {}),
+        ...(method === 'ONLINE' ? { provider } : {})
+      });
+      if (method === 'ONLINE' && result.payment?.checkout_url) {
+        await openCheckout(result.payment.checkout_url);
+      } else {
+        await done(method === 'ONLINE' ? 'Renovación iniciada; se activará al confirmarse el pago.' : 'Renovación solicitada al club.');
+      }
     } catch (error) {
       setNotice({ type: 'error', text: error.message });
     } finally {
@@ -174,11 +200,12 @@ export default function MembershipsScreen() {
   const pendingOne = memberships.find((m) => m.status === 'PENDING');
   const pendingPayment = openPaymentFor(data?.payments, pendingOne);
   const onlineAvailable = Boolean(data?.settings?.mercado_pago_available);
+  const transbankAvailable = Boolean(data?.settings?.transbank_available);
   const lastPayment = (data?.payments || [])[0];
   const visibleAdmin = memberships.filter((m) => filter === 'ALL' || m.status === filter);
 
   return (
-    <Screen eyebrow="PLANES" title="Membresías" subtitle={isAdmin ? 'Planes, pagos y reglas de reserva' : 'Tu plan y su historial'} onRefresh={resource.refresh} refreshing={resource.refreshing}>
+    <Screen eyebrow="PLANES" title="Membresías" subtitle={isAdmin ? 'Planes, pagos y reglas de reserva' : isTrainer ? 'Membresías de tus deportistas asignados' : 'Tu plan y su historial'} onRefresh={resource.refresh} refreshing={resource.refreshing}>
       <Banner type={notice.type} onClose={() => setNotice({ ...notice, text: '' })}>{notice.text}</Banner>
       <ResourceView resource={resource} isEmpty={false}>
         {data ? (
@@ -225,6 +252,12 @@ export default function MembershipsScreen() {
                 </Card>
               ))}
             </>
+          ) : isTrainer ? (
+            <>
+              <SectionTitle>Membresías de mis deportistas</SectionTitle>
+              {memberships.length ? memberships.map((membership) => <MembershipRow key={membership.id} membership={membership} showAthlete />)
+                : <EmptyState icon="card-outline" title="Sin membresías" message="Las membresías de tus deportistas asignados aparecerán aquí." />}
+            </>
           ) : (
             <>
               <Card tone={pendingOne && !current ? 'warn' : undefined}>
@@ -233,13 +266,15 @@ export default function MembershipsScreen() {
                   <>
                     <Text style={[font.heading, { marginVertical: 4 }]}>{current.plan_name}</Text>
                     <Badge text="Activa" tone="ok" />
-                    <Text style={[font.small, { marginTop: 6 }]}>Vigente hasta el {formatDate(current.end_date)}</Text>
+                    <Text style={[font.small, { marginTop: 6 }]}>{current.club_name || user?.club?.name} · {formatMoney(current.price_paid, current.currency)}</Text>
+                    <Text style={[font.small, { marginTop: 4 }]}>Vigente del {formatDate(current.start_date)} al {formatDate(current.end_date)} · {current.days_remaining ?? 0} días restantes</Text>
+                    {current.payment_status ? <Text style={[font.small, { marginTop: 4 }]}>Pago: {label('paymentStatus', current.payment_status)} ({label('payment', current.payment_provider)})</Text> : null}
                   </>
                 ) : pendingOne ? (
                   <>
                     <Text style={[font.heading, { marginVertical: 4 }]}>{pendingOne.plan_name}</Text>
                     <Badge text="Pendiente de pago" tone="warn" />
-                    <Text style={[font.small, { marginTop: 6 }]}>{pendingPayment ? 'Esperando la confirmación del pago de Mercado Pago. Tu plan se activa solo cuando el pago se confirma.' : 'Paga en tu club; la membresía se activa cuando el administrador confirme el pago.'}</Text>
+                    <Text style={[font.small, { marginTop: 6 }]}>{pendingPayment ? `Esperando la confirmación de ${label('payment', pendingPayment.payment_provider)}. Tu plan se activa solo cuando el pago se confirma.` : 'Paga en tu club; la membresía se activa cuando el administrador confirme el pago.'}</Text>
                     <View style={{ marginTop: spacing.md, gap: 8 }}>
                       {pendingPayment?.checkout_url ? <Button title="Continuar pago" onPress={() => openCheckout(pendingPayment.checkout_url)} /> : null}
                       {pendingPayment ? <Button title="Actualizar estado" variant="secondary" small onPress={resource.refresh} /> : null}
@@ -257,6 +292,16 @@ export default function MembershipsScreen() {
                 ) : null}
               </Card>
 
+              {data.renewal?.can_renew ? <Card tone="warn">
+                <Text style={font.heading}>{data.renewal.state === 'EXPIRED' ? 'Tu membresía venció' : `Vence en ${data.renewal.days_left} día${data.renewal.days_left === 1 ? '' : 's'}`}</Text>
+                <Text style={[font.small, { marginTop: 4 }]}>{data.renewal.state === 'EXPIRED' ? 'La nueva vigencia comienza el día en que el club confirme el pago.' : `Puedes renovar sin perder los días vigentes. La nueva vigencia empieza el ${formatDate(data.renewal.next_start_date)}.`}</Text>
+                {data.renewal.plan ? <View style={{ marginTop: spacing.md, gap: 8 }}>
+                  {onlineAvailable ? <Button title="Renovar con Mercado Pago" onPress={() => renew(data.renewal.plan, 'ONLINE', 'MERCADO_PAGO')} loading={busyPlan === 'renewal'} /> : null}
+                  {transbankAvailable ? <Button title="Renovar con Transbank Webpay Plus" variant="secondary" onPress={() => renew(data.renewal.plan, 'ONLINE', 'TRANSBANK')} loading={busyPlan === 'renewal'} /> : null}
+                  <Button title="Renovar y pagar al club" variant="secondary" onPress={() => renew(data.renewal.plan, 'MANUAL')} loading={busyPlan === 'renewal'} />
+                </View> : <Text style={[font.small, { marginTop: spacing.sm }]}>Elige uno de los planes disponibles para renovar.</Text>}
+              </Card> : null}
+
               <SectionTitle>Planes disponibles</SectionTitle>
               {activePlans.length === 0 ? (
                 <EmptyState icon="pricetags-outline" title="Sin planes disponibles" message="Tu club aún no publicó planes de membresía." />
@@ -268,9 +313,16 @@ export default function MembershipsScreen() {
                   {plan.description ? <Text style={[font.body, { marginTop: 4 }]}>{plan.description}</Text> : null}
                   {plan.benefits ? <Text style={[font.small, { marginTop: 4 }]}>{plan.benefits}</Text> : null}
                   <View style={{ marginTop: spacing.md, gap: 8 }}>
-                    {onlineAvailable ? <Button title="Pagar con Mercado Pago" onPress={() => payOnline(plan)} loading={busyPlan === plan.id} disabled={Boolean(pendingOne) || Boolean(current)} /> : null}
-                    <Button title={onlineAvailable ? 'Solicitar y pagar al club' : 'Solicitar plan'} variant={onlineAvailable ? 'secondary' : undefined} onPress={() => requestPlan(plan)} loading={busyPlan === plan.id && !onlineAvailable} disabled={Boolean(pendingOne) || Boolean(current)} />
-                    {pendingOne || current ? <Text style={[font.small, { marginTop: 4 }]}>Ya tienes una membresía {pendingOne ? 'pendiente' : 'vigente'}.</Text> : null}
+                    {data.renewal?.can_renew ? <>
+                      {onlineAvailable ? <Button title="Renovar con Mercado Pago" onPress={() => renew(plan, 'ONLINE', 'MERCADO_PAGO')} loading={busyPlan === plan.id} /> : null}
+                      {transbankAvailable ? <Button title="Renovar con Transbank Webpay Plus" variant="secondary" onPress={() => renew(plan, 'ONLINE', 'TRANSBANK')} loading={busyPlan === plan.id} /> : null}
+                      <Button title="Renovar y pagar al club" variant="secondary" onPress={() => renew(plan, 'MANUAL')} loading={busyPlan === plan.id} />
+                    </> : <>
+                      {onlineAvailable ? <Button title="Pagar con Mercado Pago" onPress={() => payOnline(plan, 'MERCADO_PAGO')} loading={busyPlan === plan.id} disabled={Boolean(pendingOne) || Boolean(current)} /> : null}
+                      {transbankAvailable ? <Button title="Pagar con Transbank Webpay Plus" variant="secondary" onPress={() => payOnline(plan, 'TRANSBANK')} loading={busyPlan === plan.id} disabled={Boolean(pendingOne) || Boolean(current)} /> : null}
+                      <Button title={onlineAvailable || transbankAvailable ? 'Solicitar y pagar al club' : 'Solicitar plan'} variant={onlineAvailable || transbankAvailable ? 'secondary' : undefined} onPress={() => requestPlan(plan)} loading={busyPlan === plan.id && !onlineAvailable && !transbankAvailable} disabled={Boolean(pendingOne) || Boolean(current)} />
+                      {pendingOne || current ? <Text style={[font.small, { marginTop: 4 }]}>Ya tienes una membresía {pendingOne ? 'pendiente' : 'vigente'}.</Text> : null}
+                    </>}
                   </View>
                 </Card>
               ))}
@@ -288,7 +340,7 @@ export default function MembershipsScreen() {
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <View style={{ flex: 1, marginRight: spacing.sm }}>
                           <Text style={font.heading}>{payment.plan_name}</Text>
-                          <Text style={font.small}>{formatMoney(payment.amount, payment.currency)} · {formatDate(payment.created_at?.slice(0, 10))}</Text>
+                          <Text style={font.small}>{formatMoney(payment.amount, payment.currency)} · {label('payment', payment.payment_provider)} · {formatDate(payment.created_at?.slice(0, 10))}</Text>
                         </View>
                         <Badge text={label('paymentStatus', payment.status)} tone={tone(payment.status)} />
                       </View>

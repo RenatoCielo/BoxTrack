@@ -17,6 +17,7 @@ export function CompetitionPage() {
   const [requests, setRequests] = useState([]);
   const [matches, setMatches] = useState([]);
   const [athletes, setAthletes] = useState([]);
+  const [rivalClubs, setRivalClubs] = useState([]);
   const [directory, setDirectory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -26,7 +27,7 @@ export function CompetitionPage() {
   const [reviewNote, setReviewNote] = useState('');
   const [matchPanel, setMatchPanel] = useState(null);
   const [requestForm, setRequestForm] = useState({ athlete: '', request_note: '' });
-  const [matchForm, setMatchForm] = useState({ challenger_athlete: '', opponent_athlete: '', fight_date: '', event: '', location: '', category: '', fight_type: 'AMATEUR', notes: '' });
+  const [matchForm, setMatchForm] = useState({ challenger_athlete: '', opponent_club: '', opponent_athlete: '', fight_date: '', event: '', location: '', category: '', fight_type: 'AMATEUR', notes: '' });
 
   const load = async () => {
     setError('');
@@ -38,17 +39,26 @@ export function CompetitionPage() {
       setRequests(requestRows);
       setMatches(matchRows);
       if (isStaff) {
-        const [athleteRows, directoryRows] = await Promise.all([
+        const [athleteRows, clubRows] = await Promise.all([
           readCollection('/athletes/?status=ACTIVE'),
-          api.get('/competitions/directory/').then((response) => response.data)
+          api.get('/competitions/rival-clubs/').then((response) => response.data)
         ]);
         setAthletes(athleteRows.filter((athlete) => athlete.status === 'ACTIVE'));
-        setDirectory(directoryRows);
+        setRivalClubs(clubRows);
       }
     } catch (requestError) { setError(getErrorMessage(requestError)); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    setDirectory([]);
+    if (!matchForm.opponent_club) return undefined;
+    let cancelled = false;
+    api.get(`/competitions/directory/?club=${encodeURIComponent(matchForm.opponent_club)}`)
+      .then((response) => { if (!cancelled) setDirectory(response.data); })
+      .catch((requestError) => { if (!cancelled) setError(getErrorMessage(requestError)); });
+    return () => { cancelled = true; };
+  }, [matchForm.opponent_club]);
 
   const run = async (action, success) => {
     setBusy(true);
@@ -79,7 +89,7 @@ export function CompetitionPage() {
     event.preventDefault();
     run(async () => {
       await api.post('/competitions/matches/', matchForm);
-      setMatchForm({ ...matchForm, opponent_athlete: '', event: '', location: '', notes: '' });
+      setMatchForm({ ...matchForm, opponent_club: '', opponent_athlete: '', event: '', location: '', notes: '' });
     }, 'Propuesta enviada al club rival.');
   };
   const matchAction = (match, action, success, payload = {}) => run(async () => {
@@ -91,6 +101,7 @@ export function CompetitionPage() {
   const requestable = athletes.filter((athlete) => !athlete.is_competitor && !requests.some((item) => item.athlete === athlete.id && item.status === 'PENDING')
     && (role !== 'TRAINER' || athlete.assigned_trainer === user.id));
   const ownCompetitors = athletes.filter((athlete) => athlete.is_competitor && (role === 'ADMIN' || athlete.assigned_trainer === user.id));
+  const rivalAthletes = directory;
   const pending = requests.filter((item) => item.status === 'PENDING');
   const myClub = typeof user?.club === 'object' ? user.club?.id : user?.club;
 
@@ -118,14 +129,16 @@ export function CompetitionPage() {
       {isStaff && <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">COMBATES ENTRE CLUBES</p><h2>Proponer combate</h2></div></div>
         <form className="competition-form" onSubmit={submitMatch}>
           <label className="field-label"><span>Mi competidor</span><select className="control" required value={matchForm.challenger_athlete} onChange={(event) => setMatchForm({ ...matchForm, challenger_athlete: event.target.value })}><option value="">Selecciona...</option>{ownCompetitors.map((athlete) => <option key={athlete.id} value={athlete.id}>{`${athlete.first_name} ${athlete.last_name}`}</option>)}</select></label>
-          <label className="field-label"><span>Rival (otro club)</span><select className="control" required value={matchForm.opponent_athlete} onChange={(event) => setMatchForm({ ...matchForm, opponent_athlete: event.target.value })}><option value="">Selecciona...</option>{directory.map((row) => <option key={row.id} value={row.id}>{row.name} — {row.club_name}{row.category ? ` (${row.category})` : ''}</option>)}</select></label>
+          <label className="field-label"><span>Club rival</span><select className="control" required value={matchForm.opponent_club} onChange={(event) => setMatchForm({ ...matchForm, opponent_club: event.target.value, opponent_athlete: '' })}><option value="">Selecciona un club...</option>{rivalClubs.map((club) => <option key={club.id} value={club.id}>{club.name} ({club.competitor_count})</option>)}</select></label>
+          <label className="field-label"><span>Peleador rival</span><select className="control" required disabled={!matchForm.opponent_club || !rivalAthletes.length} value={matchForm.opponent_athlete} onChange={(event) => setMatchForm({ ...matchForm, opponent_athlete: event.target.value })}><option value="">Selecciona un peleador...</option>{rivalAthletes.map((row) => <option key={row.id} value={row.id}>{row.name}{row.category ? ` (${row.category})` : ''}</option>)}</select></label>
           <label className="field-label"><span>Fecha</span><input className="control" type="date" required min={today()} value={matchForm.fight_date} onChange={(event) => setMatchForm({ ...matchForm, fight_date: event.target.value })} /></label>
           <label className="field-label"><span>Tipo</span><select className="control" value={matchForm.fight_type} onChange={(event) => setMatchForm({ ...matchForm, fight_type: event.target.value })}><option value="AMATEUR">Amateur</option><option value="PRO">Profesional</option><option value="SPARRING">Sparring</option></select></label>
           <label className="field-label"><span>Evento</span><input className="control" value={matchForm.event} onChange={(event) => setMatchForm({ ...matchForm, event: event.target.value })} /></label>
           <label className="field-label"><span>Lugar</span><input className="control" value={matchForm.location} onChange={(event) => setMatchForm({ ...matchForm, location: event.target.value })} /></label>
           <button className="button primary-btn" disabled={busy}><Swords size={15} /> Proponer combate</button>
         </form>
-        {!directory.length && <p className="page-description">Aún no hay competidores activos en otros clubes.</p>}
+        {!rivalClubs.length && <p className="page-description">No hay otros clubes aprobados y activos disponibles para proponer un combate.</p>}
+        {matchForm.opponent_club && !rivalAthletes.length && <p className="page-description">Este club todavía no tiene peleadores activos aprobados como competidores.</p>}
       </section>}
 
       <section className="surface-panel"><div className="section-heading"><div><p className="eyebrow">AGENDA</p><h2>Combates</h2></div></div>

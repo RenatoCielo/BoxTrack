@@ -10,6 +10,8 @@ from apps.store.views import (
     ProductDetailView,
     ProductListCreateView,
     StoreCheckoutConfigView,
+    TransbankCheckoutView,
+    TransbankReturnView,
 )
 
 urlpatterns = [
@@ -22,4 +24,6 @@ urlpatterns = [
     path('orders/<int:pk>/proof/file/', OrderPaymentProofDownloadView.as_view(), name='store-order-proof-download'),
     path('orders/<int:pk>/proof/review/', OrderPaymentProofReviewView.as_view(), name='store-order-proof-review'),
     path('payments/mercadopago/webhook/', MercadoPagoWebhookView.as_view(), name='mercadopago-webhook'),
+    path('payments/transbank/return/', TransbankReturnView.as_view(), name='transbank-return'),
+    path('payments/transbank/checkout/<str:token>/', TransbankCheckoutView.as_view(), name='transbank-checkout'),
 ]

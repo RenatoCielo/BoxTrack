@@ -35,7 +35,7 @@ function AppRoutes() {
         <Route path="/alerts" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="alerts" /> : <Navigate to="/trainings" replace />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/store" element={<StorePage />} />
-        <Route path="/memberships" element={canAccess(['ADMIN', 'ATHLETE']) ? <MembershipsPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/memberships" element={canAccess(['ADMIN', 'TRAINER', 'ATHLETE']) ? <MembershipsPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/competition" element={<CompetitionPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

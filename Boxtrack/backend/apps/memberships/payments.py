@@ -6,11 +6,13 @@ el proveedor confirma un pago aprobado con el monto y la moneda registrados en e
 """
 import logging
 import os
+import secrets
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -22,6 +24,7 @@ from apps.memberships.models import Membership, MembershipPayment, MembershipPla
 from apps.memberships.renewals import activate_pending_membership, create_renewal_membership
 from apps.notifications.models import Notification
 from apps.store.views import StoreUnavailable, mercadopago_configured, post_mercadopago_preference
+from apps.store.transbank import TransbankUnavailable, clp_amount, response_value, transbank_configured, webpay_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +63,7 @@ def expire_pending_payments(club_id):
                 notify_user(payment.club, payment.user, 'Pago vencido', f'El pago de tu plan {payment.membership.plan_name}                 venció sin confirmarse. Puedes intentarlo nuevamente desde Membresías.')
 
 
-def activate_membership(membership, note='Pago confirmado por Mercado Pago.'):
+def activate_membership(membership, note='Pago online confirmado por el proveedor.'):
     return activate_pending_membership(membership, note=note)
 
 
@@ -142,6 +145,82 @@ def start_membership_checkout(user, plan_id, renew=False):
     return payment, True
 
 
+def start_transbank_membership_checkout(user, plan_id, request, renew=False):
+    """Initialise a Webpay Plus test transaction for a purchase or renewal."""
+    if not transbank_configured():
+        raise StoreUnavailable('Transbank Webpay Plus no está configurado para pruebas.')
+    athlete = get_object_or_404(Athlete, user=user, club_id=user.club_id, status='ACTIVE')
+    expire_overdue_memberships(user.club_id)
+    expire_pending_payments(user.club_id)
+    plan = None
+    if not renew:
+        plan = get_object_or_404(MembershipPlan, pk=plan_id, club_id=user.club_id, is_active=True)
+        amount = clp_amount(plan.price)
+        if plan.currency != 'CLP':
+            raise PaymentConflict('Transbank Webpay Plus solo admite planes en CLP.')
+
+    try:
+        with transaction.atomic():
+            Athlete.objects.select_for_update().get(pk=athlete.pk)
+            open_membership = Membership.objects.filter(athlete=athlete, status='PENDING').first()
+            if open_membership:
+                existing = open_membership.payments.filter(
+                    payment_provider='TRANSBANK', status='PENDING', checkout_url__gt='',
+                ).first()
+                same_plan = plan_id is None or (existing and existing.plan_id == plan_id)
+                if existing and same_plan and bool(open_membership.renewal_of_id) == renew:
+                    return existing, False
+                raise PaymentConflict()
+            if renew:
+                membership = create_renewal_membership(athlete, plan_id)
+                plan = membership.plan
+                amount = clp_amount(plan.price)
+                if plan.currency != 'CLP':
+                    raise PaymentConflict('Transbank Webpay Plus solo admite planes en CLP.')
+            else:
+                if Membership.objects.filter(athlete=athlete, status__in=OPEN_STATUSES).exists():
+                    raise PaymentConflict()
+                membership = Membership.objects.create(
+                    club=plan.club, athlete=athlete, plan=plan, plan_name=plan.name, price_paid=plan.price,
+                    currency=plan.currency, duration_days=plan.duration_days, weekly_class_limit=plan.weekly_class_limit,
+                )
+            payment = MembershipPayment.objects.create(
+                club=plan.club, user=user, plan=plan, membership=membership, amount=plan.price, currency=plan.currency,
+                payment_provider='TRANSBANK', expires_at=timezone.now() + timedelta(minutes=CHECKOUT_MINUTES),
+                transbank_buy_order=f'BTM{membership.pk}{secrets.token_hex(6)}'[:26],
+                transbank_session_id=f'BTMS{user.pk}{secrets.token_hex(8)}'[:61],
+            )
+    except IntegrityError as error:
+        raise PaymentConflict() from error
+
+    return_url = request.build_absolute_uri(reverse('transbank-return'))
+    try:
+        response = webpay_transaction().create(
+            payment.transbank_buy_order, payment.transbank_session_id, amount, return_url,
+        )
+        token = response_value(response, 'token')
+        provider_url = response_value(response, 'url')
+        if not token or not provider_url:
+            raise TransbankUnavailable('Transbank no devolvió una sesión Webpay válida.')
+        payment.transbank_token = str(token)
+        payment.transbank_url = str(provider_url)
+        payment.payment_reference = payment.transbank_buy_order
+        payment.checkout_url = request.build_absolute_uri(reverse('transbank-checkout', args=[token]))
+        payment.save(update_fields=['transbank_token', 'transbank_url', 'payment_reference', 'checkout_url', 'updated_at'])
+    except Exception as error:
+        with transaction.atomic():
+            payment.status = 'CANCELLED'
+            payment.provider_status = 'INITIALIZATION_FAILED'
+            payment.save(update_fields=['status', 'provider_status', 'updated_at'])
+            membership.status = 'CANCELLED'
+            membership.review_note = 'No se pudo iniciar el pago Transbank.'
+            membership.save(update_fields=['status', 'review_note', 'updated_at'])
+        if isinstance(error, StoreUnavailable):
+            raise
+        raise StoreUnavailable('No se pudo iniciar el pago Transbank de pruebas; no se activó la membresía.') from error
+    return payment, True
+
+
 def cancel_pending_payments(membership):
     return MembershipPayment.objects.filter(membership=membership, status='PENDING').update(status='CANCELLED', updated_at=timezone.now())
 
@@ -195,7 +274,12 @@ def process_membership_payment(provider_payment, data_id):
                 # El pago llegó después de cancelar o vencer la compra: se reactiva solo si no hay otra membresía abierta.
                 try:
                     with transaction.atomic():
-                        if Membership.objects.filter(athlete=membership.athlete, status__in=OPEN_STATUSES).exclude(pk=membership.pk).exists():
+                        other_open = Membership.objects.filter(
+                            athlete=membership.athlete, status__in=OPEN_STATUSES,
+                        ).exclude(pk=membership.pk)
+                        if membership.renewal_of_id:
+                            other_open = other_open.exclude(pk=membership.renewal_of_id)
+                        if other_open.exists():
                             raise IntegrityError
                         activate_membership(membership)
                         payment.status = 'APPROVED'

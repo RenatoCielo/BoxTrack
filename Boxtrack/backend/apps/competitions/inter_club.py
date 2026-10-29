@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from apps.athletes.models import Athlete
 from apps.common.permissions import ClubRolePermission, user_role
+from apps.clubs.models import Club
 from apps.competitions.models import Competition, CompetitorRequest, FightMatch
 from apps.notifications.models import Notification
 
@@ -198,6 +199,9 @@ class FightMatchListCreateView(APIView):
         except serializers.ValidationError as error:
             return Response(error.detail, status=status.HTTP_400_BAD_REQUEST)
         data = serializer.validated_data
+        selected_opponent_club = data.pop('opponent_club', None)
+        if selected_opponent_club is not None and selected_opponent_club != opponent.club_id:
+            return match_error('El peleador rival no pertenece al club seleccionado.')
         if data['fight_date'] < timezone.localdate():
             return match_error('La fecha del combate no puede estar en el pasado.')
         busy = FightMatch.objects.filter(status__in=OPEN_MATCH_STATUSES, fight_date=data['fight_date']).filter(
@@ -217,6 +221,7 @@ class FightMatchListCreateView(APIView):
 
 
 class FightMatchInputSerializer(serializers.Serializer):
+    opponent_club = serializers.IntegerField(required=True, min_value=1)
     fight_date = serializers.DateField()
     event = serializers.CharField(required=False, allow_blank=True, max_length=200)
     location = serializers.CharField(required=False, allow_blank=True, max_length=200)
@@ -324,6 +329,13 @@ class CompetitorDirectoryView(APIView):
         queryset = Athlete.objects.select_related('club').filter(
             is_competitor=True, status='ACTIVE', club__verification_status='APPROVED', club__is_active=True
         ).exclude(club_id=user.club_id)
+        selected_club = request.query_params.get('club')
+        if selected_club:
+            try:
+                selected_club = int(selected_club)
+            except (TypeError, ValueError):
+                return Response({'club': 'El club rival no es válido.'}, status=status.HTTP_400_BAD_REQUEST)
+            queryset = queryset.filter(club_id=selected_club)
         search = request.query_params.get('search')
         if search:
             queryset = queryset.filter(Q(first_name__icontains=search) | Q(last_name__icontains=search) | Q(club__name__icontains=search))
@@ -335,3 +347,22 @@ class CompetitorDirectoryView(APIView):
             for athlete in queryset.order_by('club__name', 'last_name', 'first_name')[:200]
         ]
         return Response(rows)
+
+
+class RivalClubDirectoryView(APIView):
+    """Approved rival clubs, including those that have no active competitors yet."""
+    permission_classes = [permissions.IsAuthenticated, CompetitionFlowPermission]
+
+    def get(self, request):
+        user = request.user
+        if user_role(user) not in ('ADMIN', 'TRAINER'):
+            return match_error('Solo el staff puede consultar clubes rivales.', status.HTTP_403_FORBIDDEN)
+        clubs = Club.objects.filter(
+            verification_status='APPROVED', is_active=True,
+        ).exclude(pk=user.club_id).annotate(
+            competitor_count=Count('athletes', filter=Q(athletes__is_competitor=True, athletes__status='ACTIVE')),
+        ).order_by('name', 'id')
+        return Response([
+            {'id': club.id, 'name': club.name, 'competitor_count': club.competitor_count}
+            for club in clubs
+        ])

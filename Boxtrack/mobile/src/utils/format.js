@@ -42,14 +42,14 @@ const LABELS = {
   training: { SCHEDULED: 'Programada', CANCELLED: 'Cancelada', COMPLETED: 'Completada' },
   reservation: { RESERVED: 'Reservado', CANCELLED: 'Cancelado' },
   membership: {
-    PENDING: 'Pendiente de pago', ACTIVE: 'Activa', EXPIRED: 'Vencida', REJECTED: 'Rechazada', CANCELLED: 'Cancelada'
+    PENDING: 'Pendiente de pago', ACTIVE: 'Activa', SCHEDULED: 'Programada', EXPIRED: 'Vencida', REJECTED: 'Rechazada', CANCELLED: 'Cancelada'
   },
-  order: { PENDING: 'Pendiente', PAID: 'Pagada', READY: 'Lista para retirar', COMPLETED: 'Retirada', CANCELLED: 'Cancelada' },
+  order: { PENDING: 'Pendiente', PAYMENT_REVIEW: 'Pago en revisión', PAID: 'Pagada', READY: 'Lista para retirar', COMPLETED: 'Retirada', CANCELLED: 'Cancelada' },
   paymentStatus: {
     PENDING: 'Pendiente', APPROVED: 'Aprobado', REJECTED: 'Rechazado', CANCELLED: 'Cancelado',
     EXPIRED: 'Vencido', REFUNDED: 'Reembolsado', REVIEW: 'En revisión'
   },
-  payment: { MERCADO_PAGO: 'Mercado Pago', BANK_TRANSFER: 'Transferencia', RESERVE: 'Reserva para retiro' },
+  payment: { MERCADO_PAGO: 'Mercado Pago', TRANSBANK: 'Transbank Webpay Plus', BANK_TRANSFER: 'Transferencia', RESERVE: 'Reserva para retiro' },
   proof: { NOT_SUBMITTED: 'Sin comprobante', SUBMITTED: 'En revisión', APPROVED: 'Aprobado', REJECTED: 'Rechazado' },
   match: {
     PROPOSED: 'Propuesto', ACCEPTED: 'Confirmado', DECLINED: 'Rechazado', CANCELLED: 'Cancelado', COMPLETED: 'Realizado'

@@ -57,7 +57,7 @@ const navigation = [
   { to: '/alerts', label: 'Alertas', icon: TriangleAlert, roles: ['ADMIN', 'TRAINER'] },
   { to: '/notifications', label: 'Notificaciones', icon: Bell, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
-  { to: '/memberships', label: 'Membresías', icon: CreditCard, roles: ['ADMIN', 'ATHLETE'] },
+  { to: '/memberships', label: 'Membresías', icon: CreditCard, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/settings', label: 'Configuración', icon: Settings, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
 ];
 
@@ -100,8 +100,8 @@ export function WorkspaceLayout() {
     <div className="workspace-shell">
       <aside className="workspace-sidebar">
         <div className="workspace-brand">
-          <span className="brand-mark">BX</span>
-          <div><strong>BOXTRACK</strong><small>CLUB MANAGEMENT</small></div>
+          {user?.club?.logo ? <img className="brand-mark club-logo-mark" src={user.club.logo} alt={`Logotipo de ${user.club.name}`} /> : <span className="brand-mark">BX</span>}
+          <div><strong>{user?.club?.name || 'BOXTRACK'}</strong><small>CLUB MANAGEMENT</small></div>
         </div>
         <div className="club-badge"><span className="club-dot" />{user?.club?.name || 'Mi club'}</div>
         <nav className="workspace-nav" aria-label="Navegación principal">
@@ -126,7 +126,7 @@ export function WorkspaceLayout() {
           <button className="icon-button mobile-menu-toggle" onClick={() => setMobileMenuOpen((open) => !open)} aria-label={mobileMenuOpen ? 'Cerrar navegación' : 'Abrir navegación'} aria-expanded={mobileMenuOpen}>
             {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
           </button>
-          <div className="mobile-brand"><span className="brand-mark">BX</span><strong>BOXTRACK</strong></div>
+          <div className="mobile-brand">{user?.club?.logo ? <img className="brand-mark club-logo-mark" src={user.club.logo} alt="" /> : <span className="brand-mark">BX</span>}<strong>{user?.club?.name || 'BOXTRACK'}</strong></div>
           <div className="topbar-club">{user?.club?.name || 'Mi club'}</div>
           <NavLink to="/settings" className={({ isActive }) => `icon-button settings-shortcut${isActive ? ' active' : ''}`} aria-label="Abrir configuración" title="Configuración">
             <Settings size={20} />

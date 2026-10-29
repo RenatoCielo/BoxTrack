@@ -17,8 +17,29 @@ export const colors = {
   goldSoft: '#fbf4e4',
   sky: '#485a72',
   skySoft: '#eef1f5',
-  white: '#ffffff'
+  white: '#ffffff',
+  primaryText: '#ffffff',
+  accentText: '#ffffff'
 };
+
+function validHex(value, fallback) {
+  return /^#[0-9a-f]{6}$/i.test(value || '') ? value : fallback;
+}
+
+function contrastColor(hex) {
+  const channels = hex.slice(1).match(/.{2}/g).map((part) => parseInt(part, 16) / 255);
+  const luminance = channels.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  return luminance > 0.42 ? '#161616' : '#ffffff';
+}
+
+export function applyClubBranding(club) {
+  colors.red = validHex(club?.primary_color, '#c51f35');
+  colors.primaryText = contrastColor(colors.red);
+  colors.dark = validHex(club?.accent_color, '#151518');
+  colors.accentText = contrastColor(colors.dark);
+  font.eyebrow.color = colors.red;
+}
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 export const radius = { sm: 6, md: 10, lg: 14, pill: 999 };

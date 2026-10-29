@@ -41,6 +41,8 @@ class Club(SpanishSchemaModel):
     website = models.URLField(blank=True)
     disciplines = models.JSONField(default=list, blank=True)
     logo = models.ImageField(upload_to='clubs/logos/', blank=True, null=True)
+    primary_color = models.CharField(max_length=7, default='#D7263D')
+    accent_color = models.CharField(max_length=7, default='#1F2937')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
