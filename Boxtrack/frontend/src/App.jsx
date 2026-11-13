@@ -1,4 +1,3 @@
-// Cambio de prueba para practicar commit
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { WorkspaceLayout } from './components/WorkspaceLayout';
