@@ -25,6 +25,7 @@ class Role(SpanishSchemaModel):
 class User(AbstractUser, SpanishSchemaModel, metaclass=SpanishSchemaModelBase):
     role = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True, blank=True, related_name='users')
     club = models.ForeignKey('clubs.Club', on_delete=models.CASCADE, related_name='users', null=True, blank=True)
+    discipline = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     nickname = models.CharField(max_length=50, blank=True)
     use_nickname = models.BooleanField(default=False)

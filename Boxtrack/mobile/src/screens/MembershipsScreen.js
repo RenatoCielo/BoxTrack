@@ -13,9 +13,9 @@ async function loadMemberships(user) {
   const [plans, memberships, settings, payments, renewal] = await Promise.all([
     api.readCollection('/memberships/plans/'),
     api.get('/memberships/'),
-    api.get('/memberships/settings/').catch(() => ({ require_active_membership: false })),
-    api.get('/memberships/payments/').catch(() => []),
-    user.role === 'ATHLETE' ? api.get('/memberships/renewal/').catch(() => null) : Promise.resolve(null)
+    api.get('/memberships/settings/'),
+    user.role === 'TRAINER' ? Promise.resolve([]) : api.get('/memberships/payments/'),
+    user.role === 'ATHLETE' ? api.get('/memberships/renewal/') : Promise.resolve(null)
   ]);
   return { plans, memberships: Array.isArray(memberships) ? memberships : [], settings, payments: Array.isArray(payments) ? payments : [], renewal };
 }
@@ -28,6 +28,7 @@ function MembershipRow({ membership, showAthlete, children }) {
           <Text style={font.heading}>{membership.plan_name}</Text>
           {membership.club_name ? <Text style={font.small}>{membership.club_name}</Text> : null}
           {showAthlete ? <Text style={font.small}>{membership.athlete_name}</Text> : null}
+          {membership.is_renewal ? <Text style={font.small}>Renovación</Text> : null}
         </View>
         <Badge text={label('membership', membership.status)} tone={tone(membership.status)} />
       </View>
@@ -198,6 +199,7 @@ export default function MembershipsScreen() {
   const memberships = data?.memberships || [];
   const current = memberships.find((m) => isMembershipValidFor(m, today));
   const pendingOne = memberships.find((m) => m.status === 'PENDING');
+  const scheduledMembership = memberships.find((m) => m.status === 'SCHEDULED');
   const pendingPayment = openPaymentFor(data?.payments, pendingOne);
   const onlineAvailable = Boolean(data?.settings?.mercado_pago_available);
   const transbankAvailable = Boolean(data?.settings?.transbank_available);
@@ -269,6 +271,21 @@ export default function MembershipsScreen() {
                     <Text style={[font.small, { marginTop: 6 }]}>{current.club_name || user?.club?.name} · {formatMoney(current.price_paid, current.currency)}</Text>
                     <Text style={[font.small, { marginTop: 4 }]}>Vigente del {formatDate(current.start_date)} al {formatDate(current.end_date)} · {current.days_remaining ?? 0} días restantes</Text>
                     {current.payment_status ? <Text style={[font.small, { marginTop: 4 }]}>Pago: {label('paymentStatus', current.payment_status)} ({label('payment', current.payment_provider)})</Text> : null}
+                    {pendingOne ? (
+                      <View style={{ marginTop: spacing.md, gap: 8 }}>
+                        <Text style={font.small}>
+                          {pendingOne.is_renewal ? `Renovación de ${pendingOne.plan_name} pendiente. Tu membresía actual sigue vigente hasta el ${formatDate(current.end_date)}.` : `Tienes otra solicitud pendiente de ${pendingOne.plan_name}.`}
+                        </Text>
+                        {pendingPayment?.checkout_url ? <Button title="Continuar pago" onPress={() => openCheckout(pendingPayment.checkout_url)} /> : null}
+                        {pendingPayment ? <Button title="Actualizar estado" variant="secondary" small onPress={resource.refresh} /> : null}
+                        {pendingPayment ? <Button title="Cancelar pago" variant="secondary" small onPress={() => cancelPayment(pendingPayment)} /> : <Button title="Cancelar solicitud" variant="secondary" small onPress={() => cancelRequest(pendingOne)} />}
+                      </View>
+                    ) : null}
+                    {scheduledMembership ? (
+                      <Text style={[font.small, { marginTop: spacing.sm }]}>
+                        Renovación programada: {scheduledMembership.plan_name}, del {formatDate(scheduledMembership.start_date)} al {formatDate(scheduledMembership.end_date)}.
+                      </Text>
+                    ) : null}
                   </>
                 ) : pendingOne ? (
                   <>
@@ -294,7 +311,7 @@ export default function MembershipsScreen() {
 
               {data.renewal?.can_renew ? <Card tone="warn">
                 <Text style={font.heading}>{data.renewal.state === 'EXPIRED' ? 'Tu membresía venció' : `Vence en ${data.renewal.days_left} día${data.renewal.days_left === 1 ? '' : 's'}`}</Text>
-                <Text style={[font.small, { marginTop: 4 }]}>{data.renewal.state === 'EXPIRED' ? 'La nueva vigencia comienza el día en que el club confirme el pago.' : `Puedes renovar sin perder los días vigentes. La nueva vigencia empieza el ${formatDate(data.renewal.next_start_date)}.`}</Text>
+                <Text style={[font.small, { marginTop: 4 }]}>{data.renewal.state === 'EXPIRED' ? 'La nueva vigencia comienza el día en que se confirme el pago.' : `Si el pago se confirma hasta el día del vencimiento, la nueva vigencia empieza el ${formatDate(data.renewal.next_start_date)} sin perder días. Si se confirma después, empieza el día de la confirmación.`}</Text>
                 {data.renewal.plan ? <View style={{ marginTop: spacing.md, gap: 8 }}>
                   {onlineAvailable ? <Button title="Renovar con Mercado Pago" onPress={() => renew(data.renewal.plan, 'ONLINE', 'MERCADO_PAGO')} loading={busyPlan === 'renewal'} /> : null}
                   {transbankAvailable ? <Button title="Renovar con Transbank Webpay Plus" variant="secondary" onPress={() => renew(data.renewal.plan, 'ONLINE', 'TRANSBANK')} loading={busyPlan === 'renewal'} /> : null}

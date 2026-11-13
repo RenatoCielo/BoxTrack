@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied
@@ -45,7 +46,7 @@ class ClubPendingListView(generics.ListAPIView):
     def get_queryset(self):
         if not getattr(self.request.user, 'is_superuser', False):
             return Club.objects.none()
-        return Club.objects.filter(verification_status='PENDING').order_by('created_at')
+        return Club.objects.filter(verification_status__in=['PENDING', 'IN_REVIEW']).order_by('created_at', 'id')
 
 
 class ClubVerificationUpdateView(generics.UpdateAPIView):
@@ -104,3 +105,18 @@ class ClubBrandingView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class ClubDisciplineInitializeView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        if user_role(request.user) != 'ADMIN' or not request.user.club_id:
+            raise PermissionDenied('Solo el administrador de un club puede configurar su disciplina.')
+        club = Club.objects.select_for_update().get(pk=request.user.club_id)
+        if club.disciplines != []:
+            return Response({'detail': 'El club ya tiene disciplinas configuradas.'}, status=status.HTTP_409_CONFLICT)
+        club.disciplines = ['Boxeo']
+        club.save(update_fields=['disciplines'])
+        return Response({'disciplines': club.disciplines})

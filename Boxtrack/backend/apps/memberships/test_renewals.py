@@ -192,6 +192,27 @@ class ManualRenewalTests(RenewalBase):
         self.assertEqual(renewal.status, 'CANCELLED')
         self.assertTrue(Notification.objects.filter(user=self.athlete_user, title='Membresía cancelada').exists())
 
+    def test_admin_cannot_manually_confirm_online_payment_in_review(self):
+        self.activate(days_left=2)
+        renewal = Membership.objects.get(pk=self.renew().data['membership']['id'])
+        MembershipPayment.objects.create(
+            club=self.club, user=self.athlete_user, plan=self.plan, membership=renewal,
+            amount=self.plan.price, currency=self.plan.currency, status='REVIEW',
+            payment_provider='TRANSBANK', expires_at=timezone.now(),
+        )
+        self.assertEqual(self.confirm(renewal).status_code, status.HTTP_409_CONFLICT)
+        renewal.refresh_from_db()
+        self.assertEqual(renewal.status, 'PENDING')
+
+    def test_athlete_cancels_manual_renewal_and_is_notified(self):
+        self.activate(days_left=2)
+        renewal = Membership.objects.get(pk=self.renew().data['membership']['id'])
+        self.client.force_authenticate(user=self.athlete_user)
+        response = self.client.post(reverse('membership-review', kwargs={'pk': renewal.pk}), {'decision': 'CANCEL'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        note = Notification.objects.get(user=self.athlete_user, title='Membresía cancelada')
+        self.assertIn('por ti', note.message)
+
 
 class ScheduledMembershipTests(RenewalBase):
     def schedule(self):
@@ -214,6 +235,19 @@ class ScheduledMembershipTests(RenewalBase):
         renewal.refresh_from_db()
         self.assertEqual((current.status, renewal.status), ('EXPIRED', 'ACTIVE'))
         self.assertEqual(Membership.objects.filter(athlete=self.athlete, status='ACTIVE').count(), 1)
+
+    def test_scheduled_period_already_over_is_expired_not_activated(self):
+        current, renewal = self.schedule()
+        Membership.objects.filter(pk=current.pk).update(end_date=self.today() - timedelta(days=40))
+        Membership.objects.filter(pk=renewal.pk).update(
+            start_date=self.today() - timedelta(days=39),
+            end_date=self.today() - timedelta(days=9),
+        )
+        expire_overdue_memberships(self.club.id)
+        renewal.refresh_from_db()
+        self.assertEqual(renewal.status, 'EXPIRED')
+        self.assertEqual(self.state().data['membership'], renewal.pk)
+        self.assertEqual(self.state().data['state'], 'EXPIRED')
 
     def test_database_prevents_two_scheduled_or_two_pending_memberships(self):
         current, renewal = self.schedule()
@@ -300,6 +334,14 @@ class OnlineRenewalTests(RenewalBase):
         self.assertEqual(MembershipPayment.objects.count(), 1)
         self.assertEqual(Membership.objects.filter(status='PENDING').count(), 1)
 
+    def test_mercado_pago_does_not_reuse_transbank_checkout(self):
+        self.activate(days_left=4)
+        payment = self.start_online()
+        MembershipPayment.objects.filter(pk=payment.pk).update(payment_provider='TRANSBANK')
+        response = self.renew(method='ONLINE')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(MembershipPayment.objects.count(), 1)
+
     def test_athlete_can_cancel_pending_online_renewal_without_touching_current(self):
         current = self.activate(days_left=4)
         payment = self.start_online()
@@ -309,6 +351,13 @@ class OnlineRenewalTests(RenewalBase):
         payment.refresh_from_db()
         current.refresh_from_db()
         self.assertEqual((payment.status, payment.membership.status, current.status), ('CANCELLED', 'CANCELLED', 'ACTIVE'))
+        self.assertTrue(Notification.objects.filter(user=self.athlete_user, title='Pago cancelado').exists())
+
+    def test_provider_cancellation_notifies_athlete(self):
+        self.activate(days_left=4)
+        payment = self.start_online()
+        self.notify(self.provider_payment(payment, status_='cancelled'))
+        self.assertTrue(Notification.objects.filter(user=self.athlete_user, title='Pago cancelado').exists())
 
     def test_expired_checkout_notifies_and_frees_the_athlete(self):
         self.activate(days_left=4)

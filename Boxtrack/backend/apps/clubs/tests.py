@@ -38,6 +38,17 @@ class ClubVerificationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.club.refresh_from_db()
         self.assertEqual(self.club.verification_status, 'PENDING')
+
+    def test_pending_list_includes_submitted_clubs_but_not_approved(self):
+        submitted = Club.objects.create(name='Con documentos', verification_status='IN_REVIEW')
+        Club.objects.create(name='Aprobado', verification_status='APPROVED')
+        self.client.force_authenticate(user=self.superuser)
+        response = self.client.get(reverse('club-pending-list'))
+        self.assertEqual({club['id'] for club in response.data['results']}, {self.club.id, submitted.id})
+        response = self.client.patch(reverse('club-review', kwargs={'pk': submitted.pk}), {'verification_status': 'APPROVED'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        submitted.refresh_from_db()
+        self.assertEqual(submitted.verification_status, 'APPROVED')
 class ClubBrandingTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
@@ -52,6 +63,19 @@ class ClubBrandingTests(APITestCase):
     def tearDown(self):
         if self.club.logo:
             self.club.logo.delete(save=False)
+
+    def test_admin_initializes_empty_discipline_without_overwriting_other_clubs(self):
+        self.other_club.disciplines = ['MMA', 'Boxeo']
+        self.other_club.save(update_fields=['disciplines'])
+        self.client.force_authenticate(user=self.trainer)
+        self.assertEqual(self.client.post(reverse('club-discipline-initialize')).status_code, 403)
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(reverse('club-discipline-initialize'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['disciplines'], ['Boxeo'])
+        self.assertEqual(self.client.post(reverse('club-discipline-initialize')).status_code, 409)
+        self.other_club.refresh_from_db()
+        self.assertEqual(self.other_club.disciplines, ['MMA', 'Boxeo'])
 
     @staticmethod
     def image_upload(name='logo.png'):

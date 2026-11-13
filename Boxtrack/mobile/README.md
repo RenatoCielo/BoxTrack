@@ -46,6 +46,7 @@ El teléfono y el PC deben estar en la misma red Wi‑Fi. No hay credenciales en
 
 ## Pagos
 - **Membresías con Mercado Pago:** si el backend tiene las credenciales, `GET /memberships/settings/` devuelve `mercado_pago_available: true` y cada plan muestra "Pagar con Mercado Pago". La app crea la compra con `POST /memberships/payments/`, abre el `checkout_url` en el navegador del sistema y, al volver (o con "Actualizar estado"), consulta el estado real. La membresía se activa solo cuando el webhook del backend confirma el pago; volver del checkout no aprueba nada. Sin credenciales el botón no aparece y queda el pago manual ("Solicitar y pagar al club").
+- **Renovaciones:** la app consulta `GET /memberships/renewal/` y permite renovar dentro de los 7 días previos al vencimiento o después de vencer. La renovación anticipada empieza al día siguiente del fin ya pagado; la vencida empieza al confirmarse. Un pago pendiente no activa el nuevo período y la app conserva el historial.
 - La tienda usa Mercado Pago **solo si el backend tiene credenciales** (`/store/checkout-config/`), con el mismo criterio.
 - Para probar pagos reales necesitas en el `.env` de la raíz: `MERCADOPAGO_ACCESS_TOKEN` (de prueba), `MERCADOPAGO_WEBHOOK_SECRET`, `MERCADOPAGO_NOTIFICATION_URL` (URL HTTPS pública hacia `/api/store/payments/mercadopago/webhook/`, p. ej. un túnel) y `FRONTEND_URL`. Estado: **no validado contra Mercado Pago real ni en dispositivo nativo**.
 

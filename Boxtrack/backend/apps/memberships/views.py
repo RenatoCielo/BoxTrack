@@ -166,7 +166,7 @@ class MembershipReviewView(APIView):
             if decision == 'CONFIRM':
                 if membership.status != 'PENDING':
                     return Response({'detail': 'Solo se puede confirmar una membresía pendiente de pago.'}, status=status.HTTP_409_CONFLICT)
-                if membership.payments.filter(status='PENDING', payment_provider__in=('MERCADO_PAGO', 'TRANSBANK')).exists():
+                if membership.payments.filter(payment_provider__in=('MERCADO_PAGO', 'TRANSBANK')).exists():
                     return Response({'detail': 'El pago online se confirma únicamente cuando el proveedor verifica la transacción.'}, status=status.HTTP_409_CONFLICT)
                 activate_pending_membership(membership, confirmed_by=request.user)
             elif decision == 'REJECT':
@@ -182,7 +182,8 @@ class MembershipReviewView(APIView):
                 if membership.status not in ('PENDING', 'ACTIVE', 'SCHEDULED'):
                     return Response({'detail': 'Esta membresía ya no se puede cancelar.'}, status=status.HTTP_409_CONFLICT)
                 membership.status = 'CANCELLED'
-                notify(membership, 'Membresía cancelada', f'Tu plan {membership.plan_name} fue cancelado por el club.' + (f' Motivo: {note}' if note else ''))
+                actor = 'por ti' if role == 'ATHLETE' else 'por el club'
+                notify(membership, 'Membresía cancelada', f'Tu plan {membership.plan_name} fue cancelado {actor}.' + (f' Motivo: {note}' if note else ''))
             else:
                 return Response({'decision': 'Usa CONFIRM, REJECT o CANCEL.'}, status=status.HTTP_400_BAD_REQUEST)
             membership.review_note = note
@@ -268,6 +269,7 @@ class MembershipPaymentDetailView(APIView):
             if payment.membership.status == 'PENDING':
                 payment.membership.status = 'CANCELLED'
                 payment.membership.save(update_fields=['status', 'updated_at'])
+            notify(payment.membership, 'Pago cancelado', f'Cancelaste el pago de tu plan {payment.membership.plan_name}. Puedes intentarlo nuevamente desde Membresías.')
         return Response(MembershipPaymentSerializer(payment, context={'request': request}).data)
 
 

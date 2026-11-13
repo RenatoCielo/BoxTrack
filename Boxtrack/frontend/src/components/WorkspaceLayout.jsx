@@ -46,7 +46,7 @@ function PasswordDialog({ required, onClose }) {
 
 const navigation = [
   { to: '/dashboard', label: 'Resumen', icon: LayoutDashboard, roles: ['ADMIN', 'TRAINER'], end: true },
-  { to: '/global-admin', label: 'Clubes pendientes', icon: ShieldCheck, roles: ['ADMIN'] },
+  { to: '/global-admin', label: 'Panel global', icon: ShieldCheck, roles: ['ADMIN'] },
   { to: '/athletes', label: 'Deportistas', icon: Users, roles: ['ADMIN', 'TRAINER'] },
   { to: '/competitors', label: 'Boxeadores competidores', icon: Trophy, roles: ['ADMIN', 'TRAINER'] },
   { to: '/trainers', label: 'Entrenadores', icon: Shield, roles: ['ADMIN'] },
@@ -62,7 +62,8 @@ const navigation = [
 ];
 
 const visibleNavigation = (user) => {
-  const role = user?.is_superuser ? 'ADMIN' : user?.role;
+  if (user?.is_superuser) return navigation.filter((item) => ['/global-admin', '/settings'].includes(item.to));
+  const role = user?.role;
   return navigation.filter((item) => {
     if (item.to === '/global-admin') return Boolean(user?.is_superuser);
     return item.roles.includes(role);
@@ -75,6 +76,11 @@ export function WorkspaceLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(Boolean(user?.must_change_password));
   const fullName = user?.display_name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username;
+  const isGlobalAdmin = Boolean(user?.is_superuser);
+  const workspaceName = isGlobalAdmin ? 'Administración global' : user?.club?.name || 'Mi club';
+  const brandName = isGlobalAdmin ? 'BOXTRACK' : user?.club?.name || 'BOXTRACK';
+  const clubLogo = isGlobalAdmin ? null : user?.club?.logo;
+  const roleLabel = isGlobalAdmin ? 'Superusuario' : user?.role || 'Usuario';
 
   useEffect(() => {
     if (user?.must_change_password) setPasswordDialogOpen(true);
@@ -90,8 +96,9 @@ export function WorkspaceLayout() {
     logout();
     navigate('/login', { replace: true });
   };
-  const tabLabels = { '/dashboard': 'Resumen', '/athletes': 'Alumnos', '/trainings': 'Clases', '/store': 'Tienda', '/notifications': 'Avisos' };
-  const mobileTabs = ['/dashboard', '/athletes', '/trainings', '/store', '/notifications']
+  const tabLabels = { '/global-admin': 'Panel', '/settings': 'Cuenta', '/dashboard': 'Resumen', '/athletes': 'Alumnos', '/trainings': 'Clases', '/store': 'Tienda', '/notifications': 'Avisos' };
+  const tabPaths = isGlobalAdmin ? ['/global-admin', '/settings'] : ['/dashboard', '/athletes', '/trainings', '/store', '/notifications'];
+  const mobileTabs = tabPaths
     .map((path) => visibleNavigation(user).find(({ to }) => to === path))
     .filter(Boolean)
     .slice(0, 4);
@@ -100,10 +107,10 @@ export function WorkspaceLayout() {
     <div className="workspace-shell">
       <aside className="workspace-sidebar">
         <div className="workspace-brand">
-          {user?.club?.logo ? <img className="brand-mark club-logo-mark" src={user.club.logo} alt={`Logotipo de ${user.club.name}`} /> : <span className="brand-mark">BX</span>}
-          <div><strong>{user?.club?.name || 'BOXTRACK'}</strong><small>CLUB MANAGEMENT</small></div>
+          {clubLogo ? <img className="brand-mark club-logo-mark" src={clubLogo} alt={`Logotipo de ${user.club.name}`} /> : <span className="brand-mark">BX</span>}
+          <div><strong>{brandName}</strong><small>CLUB MANAGEMENT</small></div>
         </div>
-        <div className="club-badge"><span className="club-dot" />{user?.club?.name || 'Mi club'}</div>
+        <div className="club-badge"><span className="club-dot" />{workspaceName}</div>
         <nav className="workspace-nav" aria-label="Navegación principal">
           <span className="nav-caption">GESTIÓN</span>
           {visibleNavigation(user).map(({ to, label, icon: Icon, end }) => (
@@ -115,7 +122,7 @@ export function WorkspaceLayout() {
         <div className="sidebar-bottom">
           <div className="user-chip">
             <span className="user-avatar">{(fullName || 'B').slice(0, 1).toUpperCase()}</span>
-            <div className="user-meta"><strong>{fullName}</strong><small>{user?.role || 'Usuario'}</small></div>
+            <div className="user-meta"><strong>{fullName}</strong><small>{roleLabel}</small></div>
             <button className="icon-button logout-button" onClick={() => setPasswordDialogOpen(true)} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={17} /></button>
             <button className="icon-button logout-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={17} /></button>
           </div>
@@ -126,8 +133,8 @@ export function WorkspaceLayout() {
           <button className="icon-button mobile-menu-toggle" onClick={() => setMobileMenuOpen((open) => !open)} aria-label={mobileMenuOpen ? 'Cerrar navegación' : 'Abrir navegación'} aria-expanded={mobileMenuOpen}>
             {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
           </button>
-          <div className="mobile-brand">{user?.club?.logo ? <img className="brand-mark club-logo-mark" src={user.club.logo} alt="" /> : <span className="brand-mark">BX</span>}<strong>{user?.club?.name || 'BOXTRACK'}</strong></div>
-          <div className="topbar-club">{user?.club?.name || 'Mi club'}</div>
+          <div className="mobile-brand">{clubLogo ? <img className="brand-mark club-logo-mark" src={clubLogo} alt="" /> : <span className="brand-mark">BX</span>}<strong>{brandName}</strong></div>
+          <div className="topbar-club">{workspaceName}</div>
           <NavLink to="/settings" className={({ isActive }) => `icon-button settings-shortcut${isActive ? ' active' : ''}`} aria-label="Abrir configuración" title="Configuración">
             <Settings size={20} />
           </NavLink>
@@ -136,13 +143,13 @@ export function WorkspaceLayout() {
       </div>
       {mobileMenuOpen && <div className="mobile-nav-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setMobileMenuOpen(false); }}>
         <nav className="mobile-nav-drawer" aria-label="Navegación móvil">
-          <div className="mobile-nav-heading"><span>{user?.club?.name || 'Mi club'}</span><button className="icon-button mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="Cerrar navegación"><X size={20} /></button></div>
+          <div className="mobile-nav-heading"><span>{workspaceName}</span><button className="icon-button mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="Cerrar navegación"><X size={20} /></button></div>
           <div className="mobile-nav-links">{visibleNavigation(user).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setMobileMenuOpen(false)} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <Icon size={18} strokeWidth={1.8} /><span>{label}</span>
             </NavLink>
           ))}</div>
-          <div className="mobile-nav-account"><span className="user-avatar">{(fullName || 'B').slice(0, 1).toUpperCase()}</span><div className="user-meta"><strong>{fullName}</strong><small>{user?.role || 'Usuario'}</small></div><button className="icon-button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={18} /></button><button className="icon-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
+          <div className="mobile-nav-account"><span className="user-avatar">{(fullName || 'B').slice(0, 1).toUpperCase()}</span><div className="user-meta"><strong>{fullName}</strong><small>{roleLabel}</small></div><button className="icon-button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={18} /></button><button className="icon-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
         </nav>
       </div>}
       <nav className="bottom-tabbar" aria-label="Navegación rápida">

@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { WorkspaceLayout } from './components/WorkspaceLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -14,7 +14,7 @@ import { SettingsPage } from './pages/SettingsPage';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
-  const defaultPath = user?.role === 'ATHLETE' ? '/trainings' : '/dashboard';
+  const defaultPath = user?.is_superuser ? '/global-admin' : user?.role === 'ATHLETE' ? '/trainings' : '/dashboard';
   const role = user?.is_superuser ? 'ADMIN' : user?.role;
   const canAccess = (roles) => roles.includes(role);
 
@@ -24,20 +24,22 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to={defaultPath} replace /> : <LoginPage />} />
       <Route element={user ? <WorkspaceLayout /> : <Navigate to="/login" replace />}>
-        <Route path="/dashboard" element={canAccess(['ADMIN', 'TRAINER']) ? <DashboardPage /> : <Navigate to="/trainings" replace />} />
         <Route path="/global-admin" element={user?.is_superuser ? <GlobalAdminPage /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/athletes" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="athletes" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/competitors" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="competitors" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/trainers" element={canAccess(['ADMIN']) ? <ResourcePage section="trainers" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/trainings" element={<TrainingPage />} />
-        <Route path="/fights" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="fights" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/attendance" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="attendance" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/alerts" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="alerts" /> : <Navigate to="/trainings" replace />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/store" element={<StorePage />} />
-        <Route path="/memberships" element={canAccess(['ADMIN', 'TRAINER', 'ATHLETE']) ? <MembershipsPage /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/competition" element={<CompetitionPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route element={user?.is_superuser ? <Navigate to="/global-admin" replace /> : <Outlet />}>
+          <Route path="/dashboard" element={canAccess(['ADMIN', 'TRAINER']) ? <DashboardPage /> : <Navigate to="/trainings" replace />} />
+          <Route path="/athletes" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="athletes" /> : <Navigate to="/trainings" replace />} />
+          <Route path="/competitors" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="competitors" /> : <Navigate to="/trainings" replace />} />
+          <Route path="/trainers" element={canAccess(['ADMIN']) ? <ResourcePage section="trainers" /> : <Navigate to="/trainings" replace />} />
+          <Route path="/trainings" element={<TrainingPage />} />
+          <Route path="/fights" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="fights" /> : <Navigate to="/trainings" replace />} />
+          <Route path="/attendance" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="attendance" /> : <Navigate to="/trainings" replace />} />
+          <Route path="/alerts" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="alerts" /> : <Navigate to="/trainings" replace />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/store" element={<StorePage />} />
+          <Route path="/memberships" element={canAccess(['ADMIN', 'TRAINER', 'ATHLETE']) ? <MembershipsPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/competition" element={<CompetitionPage />} />
+        </Route>
       </Route>
       <Route path="/" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
       <Route path="*" element={<Navigate to={user ? defaultPath : '/login'} replace />} />

@@ -221,7 +221,7 @@ def expire_overdue_memberships(club_id=None):
     scheduled = Membership.objects.filter(status='SCHEDULED', start_date__lte=today)
     if club_id is not None:
         scheduled = scheduled.filter(club_id=club_id)
-    for membership in scheduled.exclude(athlete__memberships__status='ACTIVE'):
-        membership.status = 'ACTIVE'
-        membership.save(update_fields=['status', 'updated_at'])
+    scheduled.filter(end_date__lt=today).update(status='EXPIRED', updated_at=timezone.now())
+    for membership in scheduled.filter(end_date__gte=today).exclude(athlete__memberships__status='ACTIVE'):
+        Membership.objects.filter(pk=membership.pk, status='SCHEDULED').update(status='ACTIVE', updated_at=timezone.now())
     return expired

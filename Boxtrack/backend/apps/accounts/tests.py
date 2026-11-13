@@ -11,7 +11,7 @@ from apps.trainers.models import TrainerProfile
 class AuthFlowTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.club = Club.objects.create(name='Club Test', email='club@test.com', verification_status='APPROVED')
+        self.club = Club.objects.create(name='Club Test', email='club@test.com', verification_status='APPROVED', disciplines=['Boxeo'])
         self.role_admin = Role.objects.create(name='ADMIN', description='Administrador')
         self.admin_user = User.objects.create_user(
             username='adminuser',
@@ -28,7 +28,7 @@ class AuthFlowTests(APITestCase):
             'legal_representative_name': 'Renato Cielo',
             'legal_representative_rut': '11.111.111-1',
             'club_email': 'nuevo@club.com',
-            'disciplines': ['Boxeo', 'Crossfit'],
+            'disciplines': ['Boxeo'],
             'username': 'nuevoadmin',
             'email': 'nuevoadmin@club.com',
             'password': 'Password123!',
@@ -42,6 +42,56 @@ class AuthFlowTests(APITestCase):
         self.assertTrue(Club.objects.filter(name='Nuevo Club', legal_rut='111111111').exists())
         self.assertEqual(Club.objects.get(name='Nuevo Club').verification_status, 'PENDING')
         self.assertTrue(User.objects.filter(username='nuevoadmin').exists())
+        self.assertEqual(Club.objects.get(name='Nuevo Club').disciplines, ['Boxeo'])
+        self.assertEqual(User.objects.get(username='nuevoadmin').discipline, 'Boxeo')
+
+    def test_registration_rejects_non_boxing_disciplines(self):
+        response = self.client.post(reverse('register'), {
+            'club_name': 'Otro Club', 'club_rut': '11.111.111-1',
+            'legal_representative_name': 'Persona Responsable', 'legal_representative_rut': '11.111.111-1',
+            'username': 'otroadmin', 'email': 'otro@club.com', 'password': 'Password123!',
+            'disciplines': ['Boxeo', 'MMA'],
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('disciplines', response.data)
+        self.assertFalse(Club.objects.filter(name='Otro Club').exists())
+
+    def test_registering_another_club_keeps_clubs_and_admins_independent(self):
+        first_payload = {
+            'club_name': 'Club Norte',
+            'club_rut': '11.111.111-1',
+            'legal_representative_name': 'Ana Uno',
+            'legal_representative_rut': '12.345.678-5',
+            'username': 'adminnorte',
+            'email': 'norte@club.com',
+            'password': 'Password123!',
+        }
+        second_payload = {
+            'club_name': 'Club Sur',
+            'club_rut': '76.123.456-0',
+            'legal_representative_name': 'Luis Dos',
+            'legal_representative_rut': '11.111.111-1',
+            'username': 'adminsur',
+            'email': 'sur@club.com',
+            'password': 'Password123!',
+        }
+
+        first_response = self.client.post(reverse('register'), first_payload, format='json')
+        second_response = self.client.post(reverse('register'), second_payload, format='json')
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED, first_response.data)
+        self.assertEqual(second_response.status_code, status.HTTP_201_CREATED, second_response.data)
+        north = Club.objects.get(name='Club Norte')
+        south = Club.objects.get(name='Club Sur')
+        north_admin = User.objects.get(username='adminnorte')
+        south_admin = User.objects.get(username='adminsur')
+        self.assertNotEqual(north.pk, south.pk)
+        self.assertEqual(north_admin.club_id, north.pk)
+        self.assertEqual(south_admin.club_id, south.pk)
+        self.assertEqual(north.verification_status, 'PENDING')
+        self.assertEqual(south.verification_status, 'PENDING')
+        self.assertEqual(north.disciplines, ['Boxeo'])
+        self.assertEqual(south.disciplines, ['Boxeo'])
 
     def test_register_rejects_invalid_company_rut(self):
         payload = {
@@ -292,6 +342,7 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(user.username, 'ana.rojas')
         self.assertEqual(user.email, 'ana.rojas@club-test.com')
         self.assertEqual(user.phone, '+56912345678')
+        self.assertEqual(user.discipline, 'Boxeo')
         self.assertTrue(user.must_change_password)
         self.assertTrue(user.check_password(response.data['temporary_password']))
 
@@ -345,6 +396,40 @@ class AuthFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(TrainerProfile.objects.get(pk=response.data['profile_id']).user.username, 'luis.vera')
+        self.assertEqual(TrainerProfile.objects.get(pk=response.data['profile_id']).user.discipline, 'Boxeo')
+
+    def test_member_requires_club_discipline_and_accepts_only_own_club_choices(self):
+        self.client.force_authenticate(user=self.admin_user)
+        payload = {'first_name': 'Ana', 'last_name': 'Rojas', 'role': 'ATHLETE'}
+        self.club.disciplines = []
+        self.club.save(update_fields=['disciplines'])
+        response = self.client.post(reverse('club-members'), payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('discipline', response.data)
+        self.assertFalse(User.objects.filter(username='ana.rojas').exists())
+
+        self.club.disciplines = ['Boxeo', 'MMA']
+        self.club.save(update_fields=['disciplines'])
+        response = self.client.post(reverse('club-members'), payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response = self.client.post(reverse('club-members'), {**payload, 'discipline': 'Karate'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response = self.client.post(reverse('club-members'), {**payload, 'discipline': 'MMA'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['user']['discipline'], 'MMA')
+        self.assertEqual(User.objects.get(username='ana.rojas').discipline, 'MMA')
+
+    def test_profile_discipline_must_belong_to_own_club(self):
+        self.club.disciplines = ['Boxeo', 'MMA']
+        self.club.save(update_fields=['disciplines'])
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.patch(reverse('profile'), {'discipline': 'Karate'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response = self.client.patch(reverse('profile'), {'discipline': 'MMA'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['discipline'], 'MMA')
+        self.admin_user.refresh_from_db()
+        self.assertEqual(self.admin_user.discipline, 'MMA')
 
     def test_trainer_cannot_create_club_accounts(self):
         trainer_role = Role.objects.create(name='TRAINER', description='Entrenador')

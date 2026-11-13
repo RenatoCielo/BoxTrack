@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Check, Copy, Pencil, Plus, Search, Trash2, UserRoundCheck, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { api, getErrorMessage, readCollection } from '../services/api';
@@ -175,7 +175,7 @@ const resourceConfig = {
 };
 
 function emptyValues(fields) {
-  return Object.fromEntries(fields.map(({ name, type, defaultValue }) => [name, type === 'checkbox' ? Boolean(defaultValue) : '']));
+  return Object.fromEntries(fields.map(({ name, type, defaultValue }) => [name, type === 'checkbox' ? Boolean(defaultValue) : defaultValue ?? '']));
 }
 
 function formErrorMessage(error, fields) {
@@ -191,7 +191,7 @@ function formErrorMessage(error, fields) {
   return messages.length ? messages.join(' ') : getErrorMessage(error);
 }
 
-function memberConfig(section) {
+function memberConfig(section, disciplines) {
   const isAthlete = section !== 'trainers';
   return {
     title: isAthlete ? 'acceso de deportista' : 'acceso de entrenador',
@@ -200,6 +200,9 @@ function memberConfig(section) {
       { name: 'first_name', label: 'Nombre', required: true },
       { name: 'last_name', label: 'Apellido', required: true },
       { name: 'phone', label: 'Teléfono', type: 'tel', placeholder: '+56912345678' },
+      disciplines.length === 1
+        ? { name: 'discipline', label: 'Disciplina del club', type: 'readonly', defaultValue: disciplines[0] }
+        : { name: 'discipline', label: 'Disciplina del club', type: 'select', required: true, options: disciplines.map((item) => [item, item]) },
       ...(isAthlete
         ? [
             { name: 'category', label: 'Categoría deportiva' },
@@ -233,7 +236,7 @@ function ResourceForm({ config, initial, relations, onClose, onSubmit, busy, err
                 <option value="">Seleccionar</option>
                 {(field.type === 'relation' ? (relations[field.name] || []).map((item) => [String(item.id), typeof field.optionLabel === 'function' ? field.optionLabel(item) : item[field.optionLabel]]) : field.options).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
-                : <input className="control" type={field.type || 'text'} name={field.name} required={field.required} min={field.min} step={field.step} maxLength={field.maxLength} pattern={field.pattern} placeholder={field.placeholder} value={values[field.name] ?? ''} onChange={update} />}
+                : <input className="control" type={field.type === 'readonly' ? 'text' : field.type || 'text'} readOnly={field.type === 'readonly'} name={field.name} required={field.required} min={field.min} step={field.step} maxLength={field.maxLength} pattern={field.pattern} placeholder={field.placeholder} value={values[field.name] ?? ''} onChange={update} />}
             {field.help && <small>{field.help}</small>}
           </label>)}</div>
           {error && <div className="notice notice-error">{error}</div>}
@@ -284,6 +287,7 @@ export function ResourcePage({ section: providedSection }) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const { user } = useAuth();
+  const disciplines = Array.isArray(user?.club?.disciplines) ? [...new Set(user.club.disciplines.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))] : [];
   const trainerWriteSections = ['attendance', 'fights', 'evaluations', 'weight', 'alerts'];
   const canManage = user?.role === 'ADMIN' || (user?.role === 'TRAINER' && trainerWriteSections.includes(section));
   const accountManagedSection = ['athletes', 'competitors', 'trainers'].includes(section);
@@ -359,7 +363,7 @@ export function ResourcePage({ section: providedSection }) {
       setCreatedCredentials(data);
       await load();
     } catch (requestError) {
-      setFormError(formErrorMessage(requestError, memberConfig(section).fields));
+      setFormError(formErrorMessage(requestError, memberConfig(section, disciplines).fields));
     } finally {
       setSaving(false);
     }
@@ -412,7 +416,8 @@ export function ResourcePage({ section: providedSection }) {
 
   return (
     <section className="page-stack">
-      <header className="page-heading"><div><p className="eyebrow">{config.eyebrow}</p><h1>{config.title}</h1><p className="page-description">{config.description}</p></div><div className="heading-actions">{user?.role === 'ADMIN' && accountManagedSection && <button className="button primary-btn" onClick={() => { setAccountDialog(true); setFormError(''); }}><Plus size={16} /> Crear cuenta</button>}{canManage && !accountManagedSection && <button className="button primary-btn" onClick={() => { setEditing(emptyValues(config.fields)); setFormError(''); }}><Plus size={16} /> Nuevo registro</button>}</div></header>
+      <header className="page-heading"><div><p className="eyebrow">{config.eyebrow}</p><h1>{config.title}</h1><p className="page-description">{config.description}</p></div><div className="heading-actions">{user?.role === 'ADMIN' && accountManagedSection && <button className="button primary-btn" disabled={!disciplines.length} onClick={() => { setAccountDialog(true); setFormError(''); }}><Plus size={16} /> Crear cuenta</button>}{canManage && !accountManagedSection && <button className="button primary-btn" onClick={() => { setEditing(emptyValues(config.fields)); setFormError(''); }}><Plus size={16} /> Nuevo registro</button>}</div></header>
+      {user?.role === 'ADMIN' && accountManagedSection && !disciplines.length && <div className="notice notice-error">Tu club necesita una disciplina antes de crear cuentas. <Link to="/settings">Configurar en mi club</Link>.</div>}
       <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label={`Buscar en ${config.title}`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>{section === 'athletes' && <div className="athlete-filters"><select className="control" aria-label="Filtrar por perfil" value={athleteTypeFilter} onChange={(event) => setAthleteTypeFilter(event.target.value)}><option value="ALL">Todos los perfiles</option><option value="GENERAL">Generales</option><option value="COMPETITORS">Competidores</option></select><select className="control" aria-label="Filtrar por estado" value={athleteStatusFilter} onChange={(event) => setAthleteStatusFilter(event.target.value)}><option value="ALL">Todos los estados</option><option value="ACTIVE">Activos</option><option value="INACTIVE">Inactivos</option></select></div>}<span className="table-count">{filtered.length} registros</span></div>
       {error && <div className="notice notice-error">{error}</div>}
       {section === 'athletes' && user?.role === 'ADMIN' && rows.some((athlete) => athlete.status === 'INACTIVE') && <details className="orphan-accounts-panel"><summary><span><span className="eyebrow">ACCESO DESACTIVADO</span><strong>Dados de baja ({rows.filter((athlete) => athlete.status === 'INACTIVE').length})</strong></span></summary><p>Las fichas y el historial se conservan. Puedes reactivar el acceso cuando vuelvan al gimnasio.</p><div className="orphan-account-list">{rows.filter((athlete) => athlete.status === 'INACTIVE').map((athlete) => <div key={athlete.id}><span><strong>{athleteDisplayName(athlete)}</strong><small>{athlete.user ? 'Cuenta asociada' : 'Sin cuenta asociada'}</small></span><button className="button button-secondary" onClick={() => reactivateAthlete(athlete)}>Reactivar acceso</button></div>)}</div></details>}
@@ -442,7 +447,7 @@ export function ResourcePage({ section: providedSection }) {
             : <tr><td colSpan={config.columns.length + Number(canManage)} className="table-empty">{query ? 'No hay coincidencias.' : 'Aún no hay registros.'}</td></tr>}
       </tbody></table></div>
       {editing && <ResourceForm config={config} initial={editing} relations={relations} onClose={() => setEditing(null)} onSubmit={save} busy={saving} error={formError} />}
-      {accountDialog && <ResourceForm config={memberConfig(section)} initial={emptyValues(memberConfig(section).fields)} relations={{}} onClose={() => setAccountDialog(false)} onSubmit={createMember} busy={saving} error={formError} />}
+      {accountDialog && <ResourceForm config={memberConfig(section, disciplines)} initial={emptyValues(memberConfig(section, disciplines).fields)} relations={{}} onClose={() => setAccountDialog(false)} onSubmit={createMember} busy={saving} error={formError} />}
       {createdCredentials && <MemberCredentialsDialog credentials={createdCredentials} onClose={() => setCreatedCredentials(null)} />}
     </section>
   );

@@ -15,6 +15,14 @@ from apps.common.permissions import can_view_user_phone
 from apps.trainers.models import TrainerProfile
 
 
+def club_disciplines(club):
+    if not club or not isinstance(club.disciplines, list):
+        raise serializers.ValidationError('El club no tiene una configuración de disciplinas válida.')
+    if any(not isinstance(item, str) or not item.strip() for item in club.disciplines):
+        raise serializers.ValidationError('El club tiene una configuración de disciplinas inválida.')
+    return list(dict.fromkeys(item.strip() for item in club.disciplines))
+
+
 class ClubSerializer(serializers.ModelSerializer):
     class Meta:
         model = Club
@@ -37,7 +45,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'nickname',
-            'use_nickname', 'display_name', 'phone', 'role', 'club', 'is_active',
+            'use_nickname', 'display_name', 'phone', 'role', 'club', 'discipline', 'is_active',
             'must_change_password', 'is_superuser'
         ]
         read_only_fields = fields
@@ -64,6 +72,7 @@ class ProfileSerializer(UserSerializer):
     nickname = serializers.CharField(max_length=50, required=False, allow_blank=True)
     use_nickname = serializers.BooleanField(required=False)
     share_phone = serializers.BooleanField(required=False)
+    discipline = serializers.CharField(max_length=100, required=False)
 
     class Meta(UserSerializer.Meta):
         fields = [*UserSerializer.Meta.fields, 'share_phone']
@@ -92,6 +101,11 @@ class ProfileSerializer(UserSerializer):
         if normalized and not re.fullmatch(r'\+?[1-9]\d{7,14}', normalized):
             raise serializers.ValidationError('Ingresa un teléfono válido con código de país.')
         return normalized
+
+    def validate_discipline(self, value):
+        if value not in club_disciplines(self.instance.club):
+            raise serializers.ValidationError('Elige una disciplina asociada a tu club.')
+        return value
 
     def validate(self, attrs):
         use_nickname = attrs.get('use_nickname', self.instance.use_nickname)
@@ -182,6 +196,12 @@ class RegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError('Este correo ya está registrado.')
         return value
 
+    def validate_disciplines(self, value):
+        if value and (len(value) != 1 or value[0].strip().casefold() != 'boxeo'):
+            raise serializers.ValidationError('Por ahora solo está disponible Boxeo para nuevos clubes.')
+        return ['Boxeo']
+
+    @transaction.atomic
     def create(self, validated_data):
         club_name = validated_data.pop('club_name')
         club_rut = validated_data.pop('club_rut')
@@ -221,6 +241,7 @@ class RegisterSerializer(serializers.Serializer):
             phone=phone,
             role=role_admin,
             club=club,
+            discipline='Boxeo',
         )
 
         return user
@@ -233,6 +254,7 @@ class ClubMemberCreateSerializer(serializers.Serializer):
     last_name = serializers.CharField(max_length=150)
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
     role = serializers.ChoiceField(choices=ROLE_CHOICES)
+    discipline = serializers.CharField(max_length=100, required=False)
     specialty = serializers.CharField(max_length=200, required=False, allow_blank=True)
     professional_title = serializers.CharField(max_length=200, required=False, allow_blank=True)
     experience_years = serializers.IntegerField(min_value=0, required=False, default=0)
@@ -258,6 +280,21 @@ class ClubMemberCreateSerializer(serializers.Serializer):
         if normalized and not re.fullmatch(r'\+?[1-9]\d{7,14}', normalized):
             raise serializers.ValidationError('Ingresa un teléfono válido con código de país, por ejemplo +56912345678.')
         return normalized
+
+    def validate(self, attrs):
+        club = self.context['request'].user.club
+        available = club_disciplines(club)
+        if not available:
+            raise serializers.ValidationError({'discipline': 'El club debe configurar una disciplina antes de crear cuentas.'})
+        selected = attrs.get('discipline')
+        if not selected and len(available) == 1:
+            selected = available[0]
+        if not selected:
+            raise serializers.ValidationError({'discipline': 'Selecciona una disciplina del club.'})
+        if selected not in available:
+            raise serializers.ValidationError({'discipline': 'Elige una disciplina asociada a tu club.'})
+        attrs['discipline'] = selected
+        return attrs
 
     @staticmethod
     def _unique_credentials(first_name, last_name, club):

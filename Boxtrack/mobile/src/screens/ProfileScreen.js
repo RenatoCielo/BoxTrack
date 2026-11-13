@@ -1,19 +1,21 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
-import { Badge, Banner, Button, Card, Field, KeyValue, Screen, SectionTitle } from '../components/ui';
+import { Banner, Button, Card, Field, KeyValue, Screen, SectionTitle, Segmented } from '../components/ui';
 import { api } from '../api';
 import { font, spacing } from '../theme';
 import { label } from '../utils/format';
 
 export default function ProfileScreen() {
   const { user, updateProfile, logout } = useAuth();
+  const disciplines = Array.isArray(user.club?.disciplines) ? [...new Set(user.club.disciplines.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))] : [];
   const [form, setForm] = useState({
     first_name: user.first_name || '',
     last_name: user.last_name || '',
     email: user.email || '',
     phone: user.phone || '',
-    nickname: user.nickname || ''
+    nickname: user.nickname || '',
+    discipline: user.discipline || (disciplines.length === 1 ? disciplines[0] : '')
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: 'success', text: '' });
@@ -27,7 +29,8 @@ export default function ProfileScreen() {
     setSaving(true);
     setMessage({ type: 'success', text: '' });
     try {
-      await updateProfile(form);
+      const { discipline, ...otherForm } = form;
+      await updateProfile(discipline && disciplines.includes(discipline) ? { ...otherForm, discipline } : otherForm);
       setMessage({ type: 'success', text: 'Perfil actualizado.' });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
@@ -67,6 +70,7 @@ export default function ProfileScreen() {
         <KeyValue label="Usuario" value={user.username} />
         <KeyValue label="Rol" value={label('role', user.role)} />
         <KeyValue label="Club" value={user.club?.name || '—'} />
+        <KeyValue label="Disciplina" value={user.discipline || (disciplines.length === 1 ? disciplines[0] : 'Sin asignar')} />
       </Card>
 
       <SectionTitle>Datos personales</SectionTitle>
@@ -77,6 +81,7 @@ export default function ProfileScreen() {
         <Field label="Correo electrónico" value={form.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" />
         <Field label="Teléfono" value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" />
         <Field label="Apodo" value={form.nickname} onChangeText={set('nickname')} />
+        {disciplines.length > 1 ? <><Text style={font.small}>Disciplina del club</Text><Segmented options={disciplines.map((item) => ({ label: item, value: item }))} value={form.discipline} onChange={set('discipline')} /></> : null}
         <Button title="Guardar cambios" onPress={save} loading={saving} />
       </Card>
 

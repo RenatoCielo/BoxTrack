@@ -84,7 +84,9 @@ def start_membership_checkout(user, plan_id, renew=False):
             Athlete.objects.select_for_update().get(pk=athlete.pk)
             open_membership = Membership.objects.filter(athlete=athlete, status='PENDING').first()
             if open_membership:
-                existing = open_membership.payments.filter(status='PENDING').exclude(checkout_url='').first()
+                existing = open_membership.payments.filter(
+                    status='PENDING', payment_provider='MERCADO_PAGO',
+                ).exclude(checkout_url='').first()
                 same_plan = plan_id is None or (existing and existing.plan_id == plan_id)
                 if existing and same_plan and bool(open_membership.renewal_of_id) == renew:
                     return existing, False
@@ -313,7 +315,9 @@ def process_membership_payment(provider_payment, data_id):
                 membership.status = 'CANCELLED'
                 membership.review_note = 'El pago online no fue aprobado.'
                 membership.save(update_fields=['status', 'review_note', 'updated_at'])
-            notify_user(payment.club, membership.athlete.user, 'Pago no aprobado', f'El pago de tu plan {membership.plan_name} no fue aprobado. Puedes intentarlo nuevamente desde Membresías.')
+            title = 'Pago no aprobado' if provider_status == 'rejected' else 'Pago cancelado'
+            outcome = 'no fue aprobado' if provider_status == 'rejected' else 'fue cancelado'
+            notify_user(payment.club, membership.athlete.user, title, f'El pago de tu plan {membership.plan_name} {outcome}. Puedes intentarlo nuevamente desde Membresías.')
         elif provider_status:
             payment.provider_status = provider_status
             payment.save(update_fields=['provider_status', 'updated_at'])

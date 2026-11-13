@@ -84,8 +84,8 @@ export function MembershipsPage() {
         readCollection('/memberships/plans/'),
         api.get('/memberships/').then((response) => response.data),
         api.get('/memberships/settings/').then((response) => response.data),
-        api.get('/memberships/payments/').then((response) => response.data).catch(() => []),
-        user?.role === 'ATHLETE' ? api.get('/memberships/renewal/').then((response) => response.data).catch(() => null) : Promise.resolve(null),
+        isTrainer ? Promise.resolve([]) : api.get('/memberships/payments/').then((response) => response.data),
+        user?.role === 'ATHLETE' ? api.get('/memberships/renewal/').then((response) => response.data) : Promise.resolve(null),
         isAdmin ? readCollection('/athletes/?status=ACTIVE') : Promise.resolve([])
       ]);
       setPlans(planRows);
@@ -240,7 +240,7 @@ export function MembershipsPage() {
         {activeMembership && pendingMembership && <p className="page-description">{pendingMembership.is_renewal ? 'Renovación' : 'Compra'} pendiente de pago: {pendingMembership.plan_name}. Tu membresía actual sigue vigente hasta el {dateLabel(activeMembership.end_date)}.</p>}
         {scheduledMembership && <p className="page-description">Renovación programada: {scheduledMembership.plan_name}, del {dateLabel(scheduledMembership.start_date)} al {dateLabel(scheduledMembership.end_date)}.</p>}
         {canRenew && !pendingMembership && <div className="renewal-box">
-          <p className="page-description">{renewal.state === 'EXPIRED' ? `Tu membresía venció el ${dateLabel(renewal.end_date)}. Si renuevas, comenzará el día en que se confirme el pago.` : `Tu membresía vence el ${dateLabel(renewal.end_date)} (${renewal.days_left === 0 ? 'hoy' : `en ${renewal.days_left} día${renewal.days_left === 1 ? '' : 's'}`}). Si renuevas ahora, la nueva comienza el ${dateLabel(renewal.next_start_date)} y no pierdes días.`}</p>
+          <p className="page-description">{renewal.state === 'EXPIRED' ? `Tu membresía venció el ${dateLabel(renewal.end_date)}. Si renuevas, comenzará el día en que se confirme el pago.` : `Tu membresía vence el ${dateLabel(renewal.end_date)} (${renewal.days_left === 0 ? 'hoy' : `en ${renewal.days_left} día${renewal.days_left === 1 ? '' : 's'}`}). Si el pago se confirma hasta el día del vencimiento, la nueva comienza el ${dateLabel(renewal.next_start_date)} sin perder días; si se confirma después, comienza el día de la confirmación.`}</p>
           {renewal.plan ? <div className="training-actions">
             {onlineAvailable && <button className="button primary-btn" disabled={busy} onClick={() => renew('ONLINE', undefined, 'MERCADO_PAGO')}><CreditCard size={15} /> Renovar {renewal.plan.name} con Mercado Pago</button>}
             {transbankAvailable && <button className="button button-secondary" disabled={busy} onClick={() => renew('ONLINE', undefined, 'TRANSBANK')}><CreditCard size={15} /> Renovar {renewal.plan.name} con Transbank Webpay Plus</button>}

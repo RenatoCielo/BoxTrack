@@ -36,6 +36,7 @@ SPANISH_COLUMN_NAMES = {
     'address': 'direccion',
     'website': 'sitio_web',
     'disciplines': 'disciplinas',
+    'discipline': 'disciplina',
     'logo': 'logotipo',
     'primary_color': 'color_primario',
     'accent_color': 'color_acento',

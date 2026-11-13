@@ -12,6 +12,7 @@ const initialProfile = (user) => ({
   nickname: user?.nickname || '',
   use_nickname: Boolean(user?.use_nickname),
   share_phone: user?.share_phone ?? true,
+  discipline: user?.discipline || (user?.club?.disciplines?.length === 1 ? user.club.disciplines[0] : ''),
 });
 
 export function SettingsPage() {
@@ -27,6 +28,9 @@ export function SettingsPage() {
   const [logo, setLogo] = useState(null);
   const [brandingBusy, setBrandingBusy] = useState(false);
   const [brandingError, setBrandingError] = useState('');
+  const [disciplineBusy, setDisciplineBusy] = useState(false);
+  const [disciplineError, setDisciplineError] = useState('');
+  const disciplines = Array.isArray(user?.club?.disciplines) ? [...new Set(user.club.disciplines.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim()))] : [];
 
   useEffect(() => {
     setProfile(initialProfile(user));
@@ -51,7 +55,8 @@ export function SettingsPage() {
     setError('');
     setNotice('');
     try {
-      await updateProfile(profile);
+      const { discipline, ...otherProfile } = profile;
+      await updateProfile(discipline && disciplines.includes(discipline) ? { ...otherProfile, discipline } : otherProfile);
       setNotice('Tu perfil y tus preferencias se guardaron.');
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -99,6 +104,20 @@ export function SettingsPage() {
     }
   };
 
+  const initializeDiscipline = async () => {
+    setDisciplineBusy(true);
+    setDisciplineError('');
+    try {
+      const { data } = await api.post('/clubs/discipline/initialize/');
+      updateClub(data);
+      setNotice('Boxeo quedó configurado como disciplina del club.');
+    } catch (requestError) {
+      setDisciplineError(getErrorMessage(requestError));
+    } finally {
+      setDisciplineBusy(false);
+    }
+  };
+
   return <section className="page-stack settings-page">
     <header className="settings-hero">
       <span className="settings-avatar" aria-hidden="true">{(user?.display_name || user?.username || 'B').slice(0, 1).toUpperCase()}</span>
@@ -114,7 +133,13 @@ export function SettingsPage() {
     {error && <div className="notice notice-error" role="alert">{error}</div>}
 
     <div className="settings-layout">
-      {user?.role === 'ADMIN' && <details className="settings-accordion" open>
+      {user?.role === 'ADMIN' && !user?.is_superuser && Array.isArray(user?.club?.disciplines) && user.club.disciplines.length === 0 && <section className="surface-panel">
+        <div className="section-heading"><div><p className="eyebrow">DISCIPLINA DEL CLUB</p><h2>Configura tu gimnasio</h2></div></div>
+        <p className="page-description">Tu club aún no tiene disciplinas. Configura Boxeo para poder crear cuentas.</p>
+        {disciplineError && <div className="notice notice-error" role="alert">{disciplineError}</div>}
+        <button type="button" className="button primary-btn" onClick={initializeDiscipline} disabled={disciplineBusy}>{disciplineBusy ? 'Guardando...' : 'Configurar Boxeo'}</button>
+      </section>}
+      {user?.role === 'ADMIN' && !user?.is_superuser && <details className="settings-accordion" open>
         <summary><span className="settings-icon"><Palette size={19} /></span><span className="settings-summary-text"><strong>Imagen del club</strong><small>Colores y logotipo para las cuentas del equipo</small></span><ChevronDown size={18} className="settings-chevron" /></summary>
         <form className="settings-accordion-body settings-field-grid" onSubmit={saveBranding}>
           <label className="field-label"><span>Color principal</span><input className="control color-control" type="color" value={branding.primary_color} onChange={(event) => setBranding({ ...branding, primary_color: event.target.value })} /></label>
@@ -135,16 +160,18 @@ export function SettingsPage() {
           <label className="field-label"><span>Nombre</span><input className="control" name="first_name" autoComplete="given-name" value={profile.first_name} onChange={update} /></label>
           <label className="field-label"><span>Apellido</span><input className="control" name="last_name" autoComplete="family-name" value={profile.last_name} onChange={update} /></label>
           <label className="field-label"><span>Teléfono</span><input className="control" name="phone" type="tel" autoComplete="tel" placeholder="+56912345678" value={profile.phone} onChange={update} /></label>
-          <label className="field-label"><span>Apodo</span><input className="control" name="nickname" maxLength="50" value={profile.nickname} onChange={update} placeholder="¿Cómo te dicen en el gimnasio?" /></label>
+          {!user?.is_superuser && <label className="field-label"><span>Apodo</span><input className="control" name="nickname" maxLength="50" value={profile.nickname} onChange={update} placeholder="¿Cómo te dicen en el gimnasio?" /></label>}
+          {!user?.is_superuser && disciplines.length === 1 && <label className="field-label"><span>Disciplina del club</span><input className="control" value={profile.discipline} readOnly /><small>Es la única disciplina del club.</small></label>}
+          {!user?.is_superuser && disciplines.length > 1 && <label className="field-label"><span>Disciplina del club</span><select className="control" name="discipline" value={profile.discipline} onChange={update}><option value="">Seleccionar</option>{disciplines.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
         </div>
-        <label className="settings-toggle">
+        {!user?.is_superuser && <label className="settings-toggle">
           <span><strong>Mostrar mi apodo en el club</strong><small>Se usará como nombre visible en clases, listas y pedidos.</small></span>
           <input type="checkbox" name="use_nickname" checked={profile.use_nickname} disabled={!profile.nickname.trim()} onChange={update} />
-        </label>
+        </label>}
         </div>
       </details>
 
-      <details className="settings-accordion">
+      {!user?.is_superuser && <details className="settings-accordion">
         <summary><span className="settings-icon"><ShieldCheck size={19} /></span><span className="settings-summary-text"><strong>Privacidad</strong><small>Qué ve tu club de ti</small></span><ChevronDown size={18} className="settings-chevron" /></summary>
         <div className="settings-accordion-body">
         <label className="settings-toggle">
@@ -152,7 +179,7 @@ export function SettingsPage() {
           <input type="checkbox" name="share_phone" checked={profile.share_phone} onChange={update} />
         </label>
         </div>
-      </details>
+      </details>}
 
       <div className="settings-save-row">
         <button className="button primary-btn" disabled={busy}><Save size={16} />{busy ? 'Guardando...' : 'Guardar cambios'}</button>

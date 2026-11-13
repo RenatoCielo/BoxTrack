@@ -1,13 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
+import { ArrowRight, CircleCheck, ShieldCheck, Swords } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getErrorMessage } from '../services/api';
-
-const clubDisciplines = [
-  'Boxeo', 'Kickboxing', 'Muay Thai', 'MMA', 'Jiu-jitsu', 'Karate', 'Taekwondo',
-  'Acondicionamiento físico', 'Entrenamiento funcional', 'Otra disciplina'
-];
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -15,7 +10,6 @@ export function LoginPage() {
   const [mode, setMode] = useState('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [customDiscipline, setCustomDiscipline] = useState('');
   const [values, setValues] = useState({
     username: '',
     email: '',
@@ -27,19 +21,10 @@ export function LoginPage() {
     legal_representative_name: '',
     legal_representative_rut: '',
     club_email: '',
-    disciplines: []
+    disciplines: ['Boxeo']
   });
 
   const update = (event) => setValues({ ...values, [event.target.name]: event.target.value });
-
-  const toggleDiscipline = (discipline, checked) => {
-    setValues((current) => ({
-      ...current,
-      disciplines: checked
-        ? [...current.disciplines, discipline]
-        : current.disciplines.filter((item) => item !== discipline)
-    }));
-  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -48,16 +33,8 @@ export function LoginPage() {
     try {
       const sessionUser = mode === 'login'
         ? await login(values.username, values.password)
-        : await register({
-            ...values,
-            disciplines: [
-              ...values.disciplines.filter((discipline) => discipline !== 'Otra disciplina'),
-              ...(values.disciplines.includes('Otra disciplina') && customDiscipline.trim()
-                ? [customDiscipline.trim()]
-                : [])
-            ]
-          });
-      navigate(sessionUser.role === 'ATHLETE' ? '/trainings' : '/dashboard', { replace: true });
+        : await register(values);
+      navigate(sessionUser.is_superuser ? '/global-admin' : sessionUser.role === 'ATHLETE' ? '/trainings' : '/dashboard', { replace: true });
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -95,19 +72,11 @@ export function LoginPage() {
               <label><span>RUT del representante</span><input required name="legal_representative_rut" value={values.legal_representative_rut} onChange={update} placeholder="12.345.678-5" autoComplete="off" /></label>
             </div>
             <label><span>Correo del club <small>Opcional</small></span><input type="email" name="club_email" value={values.club_email} onChange={update} /></label>
-            <details className="discipline-picker">
-              <summary>
-                <span>Disciplinas del gimnasio</span>
-                <span className="discipline-selection">
-                  {values.disciplines.length ? `${values.disciplines.length} seleccionada${values.disciplines.length === 1 ? '' : 's'}` : 'Opcional'}
-                </span>
-              </summary>
-              <div className="discipline-options">{clubDisciplines.map((discipline) => <label className="checkbox-control" key={discipline}>
-                <input type="checkbox" checked={values.disciplines.includes(discipline)} onChange={(event) => toggleDiscipline(discipline, event.target.checked)} />
-                <span>{discipline}</span>
-              </label>)}</div>
-              {values.disciplines.includes('Otra disciplina') && <input className="control custom-discipline-input" value={customDiscipline} onChange={(event) => setCustomDiscipline(event.target.value)} placeholder="Escribe otra disciplina" aria-label="Otra disciplina" />}
-            </details>
+            <section className="club-discipline-card" aria-label="Disciplina del gimnasio">
+              <span className="club-discipline-icon"><Swords size={21} aria-hidden="true" /></span>
+              <div><span className="club-discipline-caption">DISCIPLINA DE TU GIMNASIO</span><strong>Boxeo</strong><small>Seleccionada automáticamente · Única disciplina disponible por ahora</small></div>
+              <CircleCheck size={19} className="club-discipline-check" aria-label="Seleccionada" />
+            </section>
             <div className="form-row">
               <label><span>Nombre</span><input name="first_name" value={values.first_name} onChange={update} autoComplete="given-name" /></label>
               <label><span>Apellido</span><input name="last_name" value={values.last_name} onChange={update} autoComplete="family-name" /></label>

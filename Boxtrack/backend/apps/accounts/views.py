@@ -103,7 +103,7 @@ class ClubMemberListCreateView(APIView):
 
     def post(self, request):
         self.check_club_admin(request)
-        serializer = ClubMemberCreateSerializer(data=request.data)
+        serializer = ClubMemberCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         user, profile, temporary_password = serializer.save(club=request.user.club)
         return Response(

@@ -26,6 +26,8 @@ flowchart LR
 - Lucide para iconografía
 - Axios para consumo de API
 - Páginas: login, dashboard, deportistas, competidores, entrenadores, clases y cupos, peleas, asistencia, alertas, notificaciones, tienda, membresías, configuración y panel de administración global (solo superusuario)
+- En la web, el superusuario inicia en un panel global de consulta con indicadores, distribuciones por verificación y rol, directorios paginados y búsqueda de gimnasios y usuarios, además de la revisión de clubes, configuración personal y cierre de sesión. Las pantallas de gestión de un club quedan para sus propias cuentas.
+- Pruebas focalizadas de navegación web: `node --test tests/global-admin.test.js` desde `frontend/`.
 - Membresías (`MembershipsPage`): el administrador crea y edita planes y confirma o rechaza pagos; el deportista ve los planes de su club, solicita uno y consulta el estado e historial de su membresía
 - Carrito de la tienda: se guarda por usuario en el navegador (no se comparte entre cuentas), se sincroniza con el catálogo real al cargar (precio, stock e imagen vigentes; se retiran productos inactivos o agotados), permite vaciarlo con confirmación y muestra la imagen del producto. El total definitivo y el stock siempre los valida el backend al crear el pedido
 - La agenda de clases (`TrainingPage`) se refresca sola cada 15 segundos y al volver a la pestaña o ventana, para que los deportistas vean de inmediato las clases nuevas que programa el administrador
@@ -53,7 +55,12 @@ flowchart LR
 - Preferencias de perfil servidas por `GET/PATCH /api/auth/profile/`; el teléfono se oculta en las fichas de otros miembros cuando su dueño desactiva el uso compartido
 - Módulos (`backend/apps`): `accounts`, `clubs`, `athletes`, `trainers`, `groups`, `trainings`, `attendance`, `evaluations`, `weight_tracking`, `competitions`, `alerts`, `notifications`, `dashboard`, `reports`, `store` y `common` (permisos compartidos)
 - Endpoints de cuentas: `register/`, `login/`, `refresh/`, `me/`, `profile/`, `members/` (alta de cuentas del club por el admin) y `password/` (cambio de contraseña, incluido el obligatorio en el primer ingreso)
+- Panel global: `GET /api/dashboard/global/`, `/api/dashboard/global/clubs/` y `/api/dashboard/global/users/` solo admiten superusuarios. Los directorios son de lectura, están paginados y admiten `search`; exponen únicamente los campos necesarios para el panel. Los totales incluyen cuentas y gimnasios inactivos; «activos» indica `is_active`, no aprobación del gimnasio.
 - Verificación de clubes: al registrarse, un club queda `PENDING` hasta subir su documento (`/api/clubs/<id>/document/`), pasa a `IN_REVIEW` y un superusuario lo aprueba o rechaza (`/api/clubs/pending/`, `/api/clubs/<id>/review/`). Los estados son `PENDING`, `IN_REVIEW`, `NEEDS_INFO` y `APPROVED`. El documento se guarda en almacenamiento privado
+- La cola de revisión incluye clubes `PENDING` e `IN_REVIEW`, para que el envío de documentación no los haga desaparecer del panel; la aprobación o rechazo conserva las reglas del endpoint existente.
+- Disciplinas: los clubes nuevos se registran únicamente con `Boxeo`, asignado también a su administrador; el servidor rechaza otras disciplinas en el alta. Las disciplinas de clubes existentes no se modifican. Para crear una cuenta de deportista o entrenador se asigna automáticamente la única disciplina del club o se exige elegir entre sus disciplinas; el servidor valida la elección. Si el club no tiene ninguna, se bloquea el alta y su administrador puede configurar `Boxeo` desde Ajustes mediante `POST /api/clubs/discipline/initialize/`, que no sobrescribe disciplinas existentes.
+- La disciplina elegida se guarda por usuario y aparece en su perfil web y móvil. Las cuentas antiguas sin asignación conservan sus datos: si su club tiene una sola disciplina se muestra como predeterminada, y si tiene varias pueden seleccionar una desde su perfil. Se aplica la migración aditiva `accounts.0005_user_discipline`.
+- Cada registro crea un club y su administrador en una operación atómica. Los usuarios, planes y datos se vinculan al `club_id` propio; otro club no altera ni hereda sus registros. El RUT de empresa único evita registrar dos veces la misma entidad legal.
 - Mientras el club no está aprobado, el administrador puede crear grupos y clases, pero entrenadores y el resto de módulos quedan restringidos. Excepción: los deportistas de un club activo pueden **consultar** las clases (solo lectura) aunque el club esté pendiente, de modo que ven la agenda que el admin programó
 - Tienda: productos, pedidos, comprobantes de pago (subida, descarga y revisión por el admin: `NOT_SUBMITTED`, en revisión, aprobado o rechazado) y webhook de MercadoPago
 - Membresías por club (`apps.memberships`, API en `/api/memberships/`):
@@ -195,7 +202,7 @@ Reglas de trabajo: conservar el proyecto existente (no recrear módulos, no borr
 
 | Área | Estado | Detalle |
 | --- | --- | --- |
-| Membresías y planes por club | Implementado (base) | Planes, solicitud, confirmación manual del pago, vencimiento, historial, límite semanal de clases en reservas y pruebas. Opción por club "Exigir membresía activa para reservar clases" implementada (desactivada por defecto). Falta renovación y registro de cambios de planes. |
+| Membresías y planes por club | Implementado | Planes por club, compra manual y online, historial, renovaciones anticipadas y vencidas, vigencia programada, notificaciones y límite semanal en reservas. Opción por club "Exigir membresía activa para reservar clases" (desactivada por defecto). No hay cobros recurrentes. |
 | Pagos de membresías | Implementado, sin validar con Mercado Pago real | Compra online con webhook firmado, verificación contra la API, idempotencia y activación solo tras pago aprobado (33 pruebas con proveedor simulado), web y móvil. Falta probar en el sandbox de Mercado Pago con credenciales de prueba y una URL pública. Sin cobros recurrentes. |
 | Tienda y carrito | Parcial | Backend ya valida stock, precios y vencimiento de reservas. Carrito del frontend corregido. Falta revisar visualmente imágenes/etiquetas en móvil y estado de entrega. |
 | Clases y reservas | Parcial | Cupos, duplicados y visibilidad por grupo funcionan. Falta disciplinas, horarios recurrentes y lista de espera. El límite semanal del plan ya se aplica. |
@@ -203,7 +210,7 @@ Reglas de trabajo: conservar el proyecto existente (no recrear módulos, no borr
 | Combates entre clubes | Implementado (base) | Propuesta, confirmación del club rival, cancelación y resultado en un único registro compartido; pruebas incluidas. Falta calendario público y ranking. |
 | Registro de clubes | Parcial | Verificación con documento y estados existe. Falta RUT, responsable y selección visual de disciplinas con revisión administrativa explícita. |
 | Notificaciones | Parcial | Internas existentes; membresías ya notifican. Faltan vencimientos próximos y estados de pedidos. |
-| Aplicación móvil | En progreso | `mobile/` (Expo + React Native) con sesión, clases, reservas, membresías, combates y tienda; falta probar en dispositivo físico/emulador nativo y las herramientas del entrenador (asistencia, evaluaciones). |
+| Aplicación móvil | En progreso | `mobile/` (Expo + React Native) con sesión, clases, reservas, membresías y renovaciones, combates y tienda; falta probar en dispositivo físico/emulador nativo y las herramientas del entrenador (asistencia, evaluaciones). |
 | Responsive y UX | Pendiente de auditoría | Revisar tablas, modales y navegación en móvil. |
 
 ## 11. Actualización P3: renovaciones, avisos, Webpay y marca por club
@@ -216,7 +223,8 @@ La tabla de estado anterior registra la línea base del proyecto. Esta sección 
 - El administrador asigna desde `POST /api/memberships/` indicando el deportista y el plan del mismo club. La membresía queda visible para esa cuenta y para su entrenador asignado; no se copia una membresía al usuario ni al navegador.
 - `GET/POST /api/memberships/renewal/` calcula y crea renovaciones. La ventana anticipada sigue siendo de 7 días. El deportista elige un plan y el backend toma su precio y duración.
 - Una renovación anticipada aprobada queda `SCHEDULED` y comienza el día posterior al vencimiento de la membresía actual. Una renovación de una membresía vencida comienza el día en que se confirma el pago. La fecha final sigue la convención existente del sistema: inicio más duración y vigente hasta el día final inclusive.
-- `PENDING` nunca se activa antes de confirmar el pago manualmente o recibir el resultado verificado del proveedor. La base conserva una única membresía `PENDING`, `ACTIVE` y `SCHEDULED` por deportista mediante restricciones separadas.
+- `PENDING` no se confirma manualmente si tiene un pago online; requiere el resultado verificado del proveedor. Las restricciones condicionales de una sola membresía `PENDING`, `ACTIVE` y `SCHEDULED` por deportista dependen del soporte del motor: SQLite las admite, MySQL no. No se ha validado la concurrencia real entre solicitudes, cancelaciones y confirmaciones; no debe considerarse garantizada en todos los motores.
+- Si una renovación programada ya terminó antes de procesarse, se marca `EXPIRED`, sin volver a activarla. Al cancelar un pago pendiente se notifica al deportista. Las interfaces muestran los errores al consultar pagos o renovaciones en vez de presentar un historial vacío.
 - Los entrenadores consultan las membresías y el estado resumido del pago de deportistas asignados a ellos. Solo el deportista comprador y el administrador del club consultan el detalle del pago; el enlace de checkout solo se entrega al comprador.
 
 ### Avisos de vencimiento
@@ -228,8 +236,9 @@ La tabla de estado anterior registra la línea base del proyecto. Esta sección 
 
 ### Combates entre clubes
 
-- `GET /api/competitions/rival-clubs/` entrega clubes aprobados y activos distintos del club actual, incluso si aún no tienen competidores, e incluye su cantidad de competidores activos. Tras elegir el club, `GET /api/competitions/directory/?club=<id>` devuelve sus peleadores activos aprobados como competidores.
+- `GET /api/competitions/rival-clubs/` entrega clubes aprobados y activos distintos del club actual, incluso si aún no tienen competidores, e incluye su cantidad de competidores activos. Los clubes pendientes/inactivos no se exponen como rivales. Tras elegir el club, `GET /api/competitions/directory/?club=<id>` devuelve solo sus peleadores activos aprobados como competidores.
 - La web y móvil cargan clubes y peleadores en pasos separados. `POST /api/competitions/matches/` exige `opponent_club`; el backend comprueba que coincide con el club real del deportista rival. Club retador, club rival, aceptación, cancelación, resultados e historiales siguen usando `FightMatch` existente.
+- El directorio muestra clubes elegibles aunque todavía tengan cero competidores; la lista de boxeadores se filtra al club seleccionado. Cada club conserva sus miembros e historial propios.
 
 ### Transbank Webpay Plus de pruebas
 
@@ -260,6 +269,14 @@ La tabla de estado anterior registra la línea base del proyecto. Esta sección 
 - `npm test -- --runInBand` en `mobile/`: 39 pruebas aprobadas.
 - `npm run export` en `mobile/`: bundle Android de Expo exportado. Esto no equivale a generar un APK ni a probarlo en un emulador o dispositivo.
 - La suite de Transbank usa mocks y verifica importes, estados, callbacks e idempotencia. No se completó una transacción real en el sandbox porque faltan credenciales configuradas.
+
+### Seguimiento posterior de P3
+
+- La pantalla móvil muestra renovaciones pendientes mientras la membresía vigente sigue activa, permite continuar o cancelar el pago y señala fechas de renovaciones programadas. El historial identifica cada renovación.
+- El alta del club y su administrador se guarda atómicamente, y hay una prueba de registros consecutivos de dos clubes con administradores separados.
+- La lista de clubes rivales está limitada intencionalmente a clubes activos y aprobados; no lista clubes pendientes ni expone sus boxeadores antes de la aprobación administrativa.
+- Validación posterior: 182 pruebas Django con SQLite, 36 pruebas focalizadas de renovación, `makemigrations --check --dry-run`, build web, 39 pruebas Jest y exportación del bundle Android. Las pruebas de pagos usan proveedores simulados; no sustituyen una prueba de Mercado Pago sandbox ni una prueba móvil en dispositivo.
+- Pendiente antes de considerar P3 lista para producción: garantizar y probar la concurrencia entre todos los caminos de compra, renovación, cancelación y confirmación usando el motor de base de datos de despliegue. En particular, el alta manual no bloquea la fila del deportista como el checkout online y MySQL no aplica las restricciones condicionales de unicidad.
 
 ## Empezar desde cero (reiniciar datos de desarrollo)
 
