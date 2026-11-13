@@ -1,22 +1,28 @@
 from datetime import timedelta
+import mimetypes
+from pathlib import Path
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.models import User
 from apps.athletes.models import Athlete
 from apps.common.permissions import ClubRolePermission, user_role
-from apps.memberships.models import Membership, MembershipPayment, MembershipPlan, MembershipSettings, expire_overdue_memberships
+from apps.memberships.models import Membership, MembershipPayment, MembershipPlan, MembershipSettings, MembershipTransferProof, expire_overdue_memberships
 from apps.memberships.payments import cancel_pending_payments, expire_pending_payments, start_membership_checkout, start_transbank_membership_checkout
 from apps.memberships.renewals import activate_pending_membership, create_renewal_membership, renewal_info
 from apps.memberships.serializers import MembershipPaymentSerializer, MembershipPlanSerializer, MembershipSerializer
 from apps.notifications.models import Notification
-from apps.store.views import mercadopago_configured
+from apps.store.models import StoreSettings
+from apps.store.views import OrderPaymentProofUploadView, mercadopago_configured
 from apps.store.transbank import transbank_configured
 
 
@@ -36,6 +42,17 @@ def notify(membership, title, message):
     user = membership.athlete.user
     if user:
         Notification.objects.create(club=membership.club, user=user, title=title, message=message, notification_type='INFO')
+
+
+def manual_payment_method(request):
+    method = request.data.get('payment_method', 'MANUAL')
+    if method not in ('MANUAL', 'BANK_TRANSFER'):
+        raise ValidationError({'payment_method': 'Selecciona pago al club o transferencia bancaria.'})
+    if method == 'BANK_TRANSFER':
+        settings_row = StoreSettings.objects.filter(club_id=request.user.club_id).first()
+        if not settings_row or not settings_row.bank_transfer_instructions.strip():
+            raise ValidationError({'payment_method': 'El club aún no ha configurado los datos de transferencia.'})
+    return method
 
 
 class PlanListCreateView(generics.ListCreateAPIView):
@@ -78,10 +95,12 @@ class MembershipSettingsView(APIView):
         if not request.user.club_id:
             return Response({'require_active_membership': False, 'mercado_pago_available': online})
         settings_row = MembershipSettings.objects.filter(club_id=request.user.club_id).first()
+        store_settings = StoreSettings.objects.filter(club_id=request.user.club_id).first()
         return Response({
             'require_active_membership': bool(settings_row and settings_row.require_active_membership),
             'mercado_pago_available': online,
             'transbank_available': transbank_configured(),
+            'bank_transfer_instructions': store_settings.bank_transfer_instructions if store_settings else '',
         })
 
     def patch(self, request):
@@ -98,7 +117,7 @@ class MembershipListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated, MembershipPermission]
 
     def scoped(self, request):
-        queryset = Membership.objects.select_related('athlete', 'athlete__user', 'club').prefetch_related('payments')
+        queryset = Membership.objects.select_related('athlete', 'athlete__user', 'club').prefetch_related('payments', 'transfer_proofs')
         if not request.user.is_superuser:
             queryset = queryset.filter(club_id=request.user.club_id)
         if user_role(request.user) == 'ATHLETE':
@@ -117,6 +136,7 @@ class MembershipListCreateView(APIView):
 
     def post(self, request):
         role = user_role(request.user)
+        payment_method = manual_payment_method(request)
         plan_id = request.data.get('plan')
         if not plan_id:
             return Response({'plan': 'Debes elegir un plan.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -132,11 +152,12 @@ class MembershipListCreateView(APIView):
         expire_overdue_memberships(request.user.club_id)
         try:
             with transaction.atomic():
+                Athlete.objects.select_for_update().get(pk=athlete.pk)
                 if Membership.objects.select_for_update().filter(athlete=athlete, status__in=['PENDING', 'ACTIVE', 'SCHEDULED']).exists():
                     return Response({'detail': 'El deportista ya tiene una membresía activa o pendiente de pago.'}, status=status.HTTP_409_CONFLICT)
                 membership = Membership.objects.create(
                     club=plan.club, athlete=athlete, plan=plan, plan_name=plan.name, price_paid=plan.price,
-                    currency=plan.currency, duration_days=plan.duration_days, weekly_class_limit=plan.weekly_class_limit,
+                    currency=plan.currency, duration_days=plan.duration_days, weekly_class_limit=plan.weekly_class_limit, payment_method=payment_method,
                 )
         except IntegrityError:
             return Response({'detail': 'El deportista ya tiene una membresía activa o pendiente de pago.'}, status=status.HTTP_409_CONFLICT)
@@ -168,6 +189,8 @@ class MembershipReviewView(APIView):
                     return Response({'detail': 'Solo se puede confirmar una membresía pendiente de pago.'}, status=status.HTTP_409_CONFLICT)
                 if membership.payments.filter(payment_provider__in=('MERCADO_PAGO', 'TRANSBANK')).exists():
                     return Response({'detail': 'El pago online se confirma únicamente cuando el proveedor verifica la transacción.'}, status=status.HTTP_409_CONFLICT)
+                if membership.payment_method == 'BANK_TRANSFER':
+                    return Response({'detail': 'Debes revisar y aprobar el comprobante de transferencia.'}, status=status.HTTP_409_CONFLICT)
                 activate_pending_membership(membership, confirmed_by=request.user)
             elif decision == 'REJECT':
                 if membership.status != 'PENDING':
@@ -189,6 +212,87 @@ class MembershipReviewView(APIView):
             membership.review_note = note
             membership.save()
             cancel_pending_payments(membership)
+        return Response(MembershipSerializer(membership).data)
+
+
+class MembershipTransferProofView(APIView):
+    permission_classes = [permissions.IsAuthenticated, MembershipPermission]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+        if user_role(request.user) != 'ATHLETE':
+            raise PermissionDenied('Solo el deportista puede enviar su comprobante.')
+        proof = request.FILES.get('proof')
+        if not proof:
+            raise ValidationError({'proof': 'Selecciona una imagen o PDF del comprobante.'})
+        if Path(proof.name).suffix.lower() not in OrderPaymentProofUploadView.allowed_extensions or proof.content_type not in OrderPaymentProofUploadView.allowed_mime_types:
+            raise ValidationError({'proof': 'Usa un comprobante en PDF, JPG, PNG o WEBP.'})
+        if proof.size > 5 * 1024 * 1024:
+            raise ValidationError({'proof': 'El archivo no puede superar los 5 MB.'})
+        if not OrderPaymentProofUploadView.has_allowed_signature(proof):
+            raise ValidationError({'proof': 'El contenido del archivo no coincide con una imagen o PDF válido.'})
+        with transaction.atomic():
+            membership = get_object_or_404(
+                Membership.objects.select_for_update().select_related('club', 'athlete', 'athlete__user'),
+                pk=pk, club_id=request.user.club_id, athlete__user=request.user,
+            )
+            if membership.status != 'PENDING' or membership.payment_method != 'BANK_TRANSFER':
+                raise ValidationError({'proof': 'Esta membresía no espera un comprobante de transferencia.'})
+            if membership.transfer_proofs.filter(proof_status='SUBMITTED').exists():
+                raise ValidationError({'proof': 'El comprobante ya está en revisión.'})
+            MembershipTransferProof.objects.create(membership=membership, payment_proof=proof)
+            notify(membership, 'Comprobante en revisión', f'Recibimos el comprobante del plan {membership.plan_name}. El club lo revisará.')
+            for admin in User.objects.filter(club=membership.club, role__name='ADMIN', is_active=True):
+                Notification.objects.create(club=membership.club, user=admin, title='Comprobante de membresía pendiente', message=f'{membership.athlete.display_name} envió un comprobante para {membership.plan_name}.', notification_type='ALERT')
+        return Response(MembershipSerializer(membership).data, status=status.HTTP_201_CREATED)
+
+
+class MembershipTransferProofFileView(APIView):
+    permission_classes = [permissions.IsAuthenticated, MembershipPermission]
+
+    def get(self, request, pk):
+        queryset = Membership.objects.select_related('athlete')
+        if not request.user.is_superuser:
+            queryset = queryset.filter(club_id=request.user.club_id)
+        membership = get_object_or_404(queryset, pk=pk)
+        if not request.user.is_superuser and user_role(request.user) != 'ADMIN' and (user_role(request.user) != 'ATHLETE' or membership.athlete.user_id != request.user.id):
+            raise PermissionDenied('No tienes permisos para ver este comprobante.')
+        proof = membership.transfer_proofs.first()
+        if not proof:
+            raise ValidationError({'proof': 'No hay comprobante disponible.'})
+        content_type = mimetypes.guess_type(proof.payment_proof.name)[0] or 'application/octet-stream'
+        return FileResponse(proof.payment_proof.open('rb'), content_type=content_type, filename=Path(proof.payment_proof.name).name)
+
+
+class MembershipTransferProofReviewView(APIView):
+    permission_classes = [permissions.IsAuthenticated, MembershipPermission]
+
+    def post(self, request, pk):
+        if user_role(request.user) != 'ADMIN' and not request.user.is_superuser:
+            raise PermissionDenied('Solo el administrador puede revisar comprobantes.')
+        decision = request.data.get('decision')
+        note = str(request.data.get('note', '')).strip()[:500]
+        if decision not in ('APPROVE', 'REJECT'):
+            raise ValidationError({'decision': 'Selecciona aprobar o rechazar el comprobante.'})
+        if decision == 'REJECT' and not note:
+            raise ValidationError({'note': 'Indica el motivo del rechazo.'})
+        with transaction.atomic():
+            queryset = Membership.objects.select_for_update().select_related('athlete', 'athlete__user', 'club')
+            if not request.user.is_superuser:
+                queryset = queryset.filter(club_id=request.user.club_id)
+            membership = get_object_or_404(queryset, pk=pk)
+            proof = membership.transfer_proofs.first()
+            if membership.status != 'PENDING' or membership.payment_method != 'BANK_TRANSFER' or not proof or proof.proof_status != 'SUBMITTED':
+                raise ValidationError({'proof': 'No hay un comprobante pendiente de revisión.'})
+            proof.proof_status = 'APPROVED' if decision == 'APPROVE' else 'REJECTED'
+            proof.proof_review_note = note
+            proof.proof_reviewed_by = request.user
+            proof.proof_reviewed_at = timezone.now()
+            proof.save(update_fields=['proof_status', 'proof_review_note', 'proof_reviewed_by', 'proof_reviewed_at'])
+            if decision == 'APPROVE':
+                activate_pending_membership(membership, confirmed_by=request.user, note='Transferencia aprobada.')
+            else:
+                notify(membership, 'Comprobante rechazado', f'El comprobante de {membership.plan_name} fue rechazado. Motivo: {note}. Puedes enviar otro.')
         return Response(MembershipSerializer(membership).data)
 
 
@@ -321,6 +425,8 @@ class MembershipRenewalView(APIView):
             with transaction.atomic():
                 Athlete.objects.select_for_update().get(pk=athlete.pk)
                 membership = create_renewal_membership(athlete, plan_id)
+                membership.payment_method = manual_payment_method(request)
+                membership.save(update_fields=['payment_method', 'updated_at'])
         except IntegrityError:
             return Response({'detail': 'Ya existe una compra o renovación pendiente.'}, status=status.HTTP_409_CONFLICT)
         return Response({'membership': MembershipSerializer(membership).data, 'payment': None}, status=status.HTTP_201_CREATED)

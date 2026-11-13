@@ -60,8 +60,19 @@ class MembershipTests(MembershipBase):
         self.client.patch(reverse('membership-plan-detail', kwargs={'pk': self.plan.pk}), {'is_active': False}, format='json')
 
         self.client.force_authenticate(user=self.athlete_user)
-        names = [row['name'] for row in self.client.get(reverse('membership-plan-list-create')).data['results']]
+        response = self.client.get(reverse('membership-plan-list-create'))
+        names = [row['name'] for row in response.data['results']]
         self.assertEqual(names, ['Trimestral'])
+        requested = self.client.post(reverse('membership-list-create'), {'plan': created.data['id']}, format='json')
+        self.assertEqual(requested.status_code, status.HTTP_201_CREATED)
+        self.assertEqual((requested.data['plan_name'], str(requested.data['price_paid'])), ('Trimestral', '80000.00'))
+
+        self.client.force_authenticate(user=self.trainer)
+        trainer_names = [row['name'] for row in self.client.get(reverse('membership-plan-list-create')).data['results']]
+        self.assertIn('Trimestral', trainer_names)
+        self.client.force_authenticate(user=self.other_admin)
+        other_plans = self.client.get(reverse('membership-plan-list-create')).data['results']
+        self.assertNotIn(created.data['id'], [row['id'] for row in other_plans])
 
     def test_athlete_and_trainer_cannot_manage_plans(self):
         for user in (self.athlete_user, self.trainer):

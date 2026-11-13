@@ -127,6 +127,10 @@ El administrador agrega productos desde **Tienda**, incluyendo precio y stock. L
 
 Transferencia y pago presencial quedan como pedidos pendientes para confirmación del gimnasio. Para habilitar cobro con Mercado Pago (tienda **y compra de membresías**, que comparten el mismo webhook), copia `.env.example` a `.env` en la raíz del proyecto y configura `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`, `MERCADOPAGO_NOTIFICATION_URL` y `FRONTEND_URL`. La URL de notificación debe ser pública y apuntar a `/api/store/payments/mercadopago/webhook/`; en desarrollo local puedes exponer el backend mediante un túnel HTTPS. Sin estas credenciales BOXTRACK desactiva el pago online y no simula cobros.
 
+En Membresías, web y móvil ofrecen transferencia bancaria, pago directo al club y los proveedores online disponibles. El administrador configura los datos de transferencia en **Tienda → Datos de transferencia** en la web o en **Membresías** en la app; son los mismos para compras y membresías del club. Tras solicitar una membresía por transferencia, el deportista adjunta un comprobante y el administrador debe revisarlo y aprobarlo para activar la membresía. En móvil se adjuntan imágenes; en la web también se aceptan PDF. Los comprobantes se guardan en almacenamiento privado, con un límite de 5 MB.
+
+Reinicia el backend después de configurar las variables de pago online. Las credenciales se mantienen únicamente en el servidor; un retorno del navegador no confirma el pago. Si ya existe una solicitud pendiente, cancélala antes de elegir otro método.
+
 ## Plantel competitivo
 
 Los perfiles marcados como competidores aparecen en **Boxeadores competidores**, separados del plantel general. Se les puede asignar un grupo de preparación; las cuentas de deportista solo ven las clases generales y las de su grupo. El récord se calcula automáticamente como victorias-derrotas-empates desde el historial, sin contar sparring.

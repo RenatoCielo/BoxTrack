@@ -56,13 +56,14 @@ class MembershipSerializer(serializers.ModelSerializer):
     days_remaining = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     payment_provider = serializers.SerializerMethodField()
+    transfer_proof = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
         fields = [
             'id', 'club', 'club_name', 'athlete', 'athlete_name', 'plan', 'plan_name', 'price_paid', 'currency',
             'duration_days', 'weekly_class_limit', 'status', 'start_date', 'end_date', 'review_note',
-            'renewal_of', 'is_renewal', 'days_remaining', 'payment_status', 'payment_provider', 'confirmed_at', 'created_at',
+            'renewal_of', 'is_renewal', 'days_remaining', 'payment_status', 'payment_provider', 'payment_method', 'transfer_proof', 'confirmed_at', 'created_at',
         ]
         read_only_fields = fields
 
@@ -81,6 +82,12 @@ class MembershipSerializer(serializers.ModelSerializer):
     def get_payment_provider(self, obj):
         payment = next(iter(obj.payments.all()), None)
         return payment.payment_provider if payment else None
+
+    def get_transfer_proof(self, obj):
+        proof = next(iter(obj.transfer_proofs.all()), None)
+        if not proof:
+            return None
+        return {'id': proof.pk, 'status': proof.proof_status, 'review_note': proof.proof_review_note}
 
 
 class MembershipPaymentSerializer(serializers.ModelSerializer):

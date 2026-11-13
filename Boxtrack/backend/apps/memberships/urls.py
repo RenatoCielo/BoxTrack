@@ -2,7 +2,7 @@ from django.urls import path
 
 from apps.memberships.views import (
     MembershipListCreateView, MembershipPaymentDetailView, MembershipPaymentListCreateView, MembershipRenewalView, MembershipReviewView,
-    MembershipSettingsView, PlanDetailView, PlanListCreateView,
+    MembershipSettingsView, MembershipTransferProofView, MembershipTransferProofFileView, MembershipTransferProofReviewView, PlanDetailView, PlanListCreateView,
 )
 
 urlpatterns = [
@@ -14,4 +14,7 @@ urlpatterns = [
     path('payments/<int:pk>/', MembershipPaymentDetailView.as_view(), name='membership-payment-detail'),
     path('', MembershipListCreateView.as_view(), name='membership-list-create'),
     path('<int:pk>/review/', MembershipReviewView.as_view(), name='membership-review'),
+    path('<int:pk>/proof/', MembershipTransferProofView.as_view(), name='membership-proof'),
+    path('<int:pk>/proof/file/', MembershipTransferProofFileView.as_view(), name='membership-proof-file'),
+    path('<int:pk>/proof/review/', MembershipTransferProofReviewView.as_view(), name='membership-proof-review'),
 ]

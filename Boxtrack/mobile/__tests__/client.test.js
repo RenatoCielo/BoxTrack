@@ -54,6 +54,20 @@ describe('api client', () => {
     expect(fetchImpl.mock.calls[2][1].headers.Authorization).toBe('Bearer new');
   });
 
+  test('descarga un comprobante privado usando el token renovado y propaga errores', async () => {
+    const storage = memoryStorage({ access: 'old', refresh: 'R1' });
+    const blob = { type: 'application/pdf' };
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce(json(401, {}))
+      .mockResolvedValueOnce(json(200, { access: 'new' }))
+      .mockResolvedValueOnce({ status: 200, ok: true, blob: async () => blob })
+      .mockResolvedValueOnce(json(403, { detail: 'Sin permiso' }));
+    const client = createClient({ baseUrl: 'http://x/api', storage, fetchImpl });
+    await expect(client.getBlob('/memberships/1/proof/file/')).resolves.toBe(blob);
+    expect(fetchImpl.mock.calls[2][1].headers.Authorization).toBe('Bearer new');
+    await expect(client.getBlob('/memberships/1/proof/file/')).rejects.toMatchObject({ status: 403, message: 'Sin permiso' });
+  });
+
   test('si el refresh falla limpia la sesión y avisa la expiración', async () => {
     const storage = memoryStorage({ access: 'old', refresh: 'R1' });
     const fetchImpl = jest.fn()

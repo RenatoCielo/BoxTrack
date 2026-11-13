@@ -8,19 +8,7 @@ import { Badge, Banner, Button, Card, EmptyState, Field, KeyValue, ResourceView 
 import { useRefreshOnFocus, useResource } from '../hooks/useResource';
 import { font, spacing } from '../theme';
 import { formatDateTime, formatMoney, label, tone } from '../utils/format';
-
-async function buildProofForm(asset) {
-  const form = new FormData();
-  const name = asset.fileName || `comprobante-${Date.now()}.jpg`;
-  const type = asset.mimeType || 'image/jpeg';
-  if (Platform.OS === 'web') {
-    const blob = await (await fetch(asset.uri)).blob();
-    form.append('proof', blob, name);
-  } else {
-    form.append('proof', { uri: asset.uri, name, type });
-  }
-  return form;
-}
+import { buildProofForm } from '../utils/proof';
 
 function OrderCard({ order, isAdmin, onChanged }) {
   const [busy, setBusy] = useState(false);

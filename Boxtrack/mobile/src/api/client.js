@@ -95,7 +95,7 @@ export function createClient({ baseUrl, storage, fetchImpl = (...args) => fetch(
       }
     }
 
-    const data = await parseBody(response);
+    const data = response.ok && options.responseType === 'blob' ? await response.blob() : await parseBody(response);
     if (!response.ok) {
       throw new ApiError(extractMessage(data, response.status), {
         status: response.status,
@@ -125,6 +125,7 @@ export function createClient({ baseUrl, storage, fetchImpl = (...args) => fetch(
     request,
     readCollection,
     get: (path) => request(path),
+    getBlob: (path) => request(path, { responseType: 'blob' }),
     post: (path, body = {}) => request(path, { method: 'POST', body }),
     patch: (path, body = {}) => request(path, { method: 'PATCH', body }),
     del: (path) => request(path, { method: 'DELETE' }),

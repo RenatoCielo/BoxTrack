@@ -2,9 +2,16 @@ from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
+import uuid
 
 from apps.common.models import SpanishSchemaModel
+from apps.store.models import private_payment_proof_storage
 from apps.trainings.models import TrainingReservation
+
+
+def membership_proof_upload_path(instance, filename):
+    extension = filename.rsplit('.', 1)[-1].lower()
+    return f'memberships/payment-proofs/{instance.membership.club_id}/{instance.membership_id}/{uuid.uuid4().hex}.{extension}'
 
 
 class MembershipPlan(SpanishSchemaModel):
@@ -53,6 +60,7 @@ class Membership(SpanishSchemaModel):
     currency = models.CharField(max_length=3, default='CLP')
     duration_days = models.PositiveIntegerField()
     weekly_class_limit = models.PositiveIntegerField(null=True, blank=True)
+    payment_method = models.CharField(max_length=20, choices=[('MANUAL', 'Pago al club'), ('BANK_TRANSFER', 'Transferencia')], default='MANUAL')
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='PENDING')
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
@@ -74,6 +82,20 @@ class Membership(SpanishSchemaModel):
 
     def __str__(self):
         return f'{self.athlete} - {self.plan_name} ({self.status})'
+
+
+class MembershipTransferProof(SpanishSchemaModel):
+    membership = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name='transfer_proofs')
+    payment_proof = models.FileField(storage=private_payment_proof_storage, upload_to=membership_proof_upload_path)
+    proof_status = models.CharField(max_length=16, choices=[('SUBMITTED', 'En revisión'), ('APPROVED', 'Aprobado'), ('REJECTED', 'Rechazado')], default='SUBMITTED')
+    proof_review_note = models.CharField(max_length=500, blank=True)
+    proof_reviewed_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='membership_proofs_reviewed')
+    proof_reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'comprobantes_membresia'
+        ordering = ['-created_at', '-id']
 
 
 class MembershipPayment(SpanishSchemaModel):
