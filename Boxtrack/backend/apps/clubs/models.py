@@ -42,6 +42,7 @@ class Club(SpanishSchemaModel):
     disciplines = models.JSONField(default=list, blank=True)
     logo = models.ImageField(upload_to='clubs/logos/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -53,3 +54,21 @@ class Club(SpanishSchemaModel):
 
     def __str__(self):
         return self.name
+
+
+class Plan(SpanishSchemaModel):
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='plans')
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=0)
+    duration = models.CharField(max_length=80)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'planes'
+        ordering = ['sort_order', 'id']
+        indexes = [models.Index(fields=['club', 'is_active', 'sort_order'])]
+
+    def __str__(self):
+        return f'{self.name} - {self.club.name}'

@@ -9,6 +9,9 @@ import { TrainingPage } from './pages/TrainingPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { StorePage } from './pages/StorePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { PublicHomePage } from './pages/PublicHomePage';
+import { PublicClubPage } from './pages/PublicClubPage';
+import { PlansPage } from './pages/PlansPage';
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -21,6 +24,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to={defaultPath} replace /> : <LoginPage />} />
+      <Route path="/" element={user ? <Navigate to={defaultPath} replace /> : <PublicHomePage />} />
+      <Route path="/gimnasios/:id" element={<PublicClubPage />} />
       <Route element={user ? <WorkspaceLayout /> : <Navigate to="/login" replace />}>
         <Route path="/dashboard" element={canAccess(['ADMIN', 'TRAINER']) ? <DashboardPage /> : <Navigate to="/trainings" replace />} />
         <Route path="/global-admin" element={user?.is_superuser ? <GlobalAdminPage /> : <Navigate to="/dashboard" replace />} />
@@ -33,9 +38,9 @@ function AppRoutes() {
         <Route path="/alerts" element={canAccess(['ADMIN', 'TRAINER']) ? <ResourcePage section="alerts" /> : <Navigate to="/trainings" replace />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/store" element={<StorePage />} />
+        <Route path="/plans" element={user?.role === 'ADMIN' && user?.club ? <PlansPage /> : <Navigate to="/trainings" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
-      <Route path="/" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
       <Route path="*" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
     </Routes>
   );

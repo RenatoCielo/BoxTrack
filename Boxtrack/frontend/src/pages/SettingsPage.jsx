@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, KeyRound, Moon, Save, Sun, UserRound, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { getErrorMessage } from '../services/api';
+import { api, getErrorMessage } from '../services/api';
 
 const initialProfile = (user) => ({
   username: user?.username || '',
@@ -23,10 +23,29 @@ export function SettingsPage() {
   const [error, setError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [notice, setNotice] = useState('');
+  const [clubIsPublic, setClubIsPublic] = useState(false);
+  const [publicationBusy, setPublicationBusy] = useState(false);
+  const [publicationError, setPublicationError] = useState('');
+  const [publicationNotice, setPublicationNotice] = useState('');
+
+  const isClubAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
     setProfile(initialProfile(user));
   }, [user]);
+
+  useEffect(() => {
+    if (!isClubAdmin) return undefined;
+    let active = true;
+    api.get('/clubs/publication/')
+      .then(({ data }) => {
+        if (active) setClubIsPublic(data.is_public);
+      })
+      .catch((requestError) => {
+        if (active) setPublicationError(getErrorMessage(requestError));
+      });
+    return () => { active = false; };
+  }, [isClubAdmin]);
 
   const update = (event) => {
     const { name, value, checked, type } = event.target;
@@ -71,6 +90,22 @@ export function SettingsPage() {
     }
   };
 
+  const savePublication = async (event) => {
+    event.preventDefault();
+    setPublicationBusy(true);
+    setPublicationError('');
+    setPublicationNotice('');
+    try {
+      const { data } = await api.patch('/clubs/publication/', { is_public: clubIsPublic });
+      setClubIsPublic(data.is_public);
+      setPublicationNotice(data.is_public ? 'Tu gimnasio aparecerá en el directorio público.' : 'Tu gimnasio ya no aparecerá en el directorio público.');
+    } catch (requestError) {
+      setPublicationError(getErrorMessage(requestError));
+    } finally {
+      setPublicationBusy(false);
+    }
+  };
+
   return <section className="page-stack settings-page">
     <header className="settings-hero">
       <span className="settings-avatar" aria-hidden="true">{(user?.display_name || user?.username || 'B').slice(0, 1).toUpperCase()}</span>
@@ -84,6 +119,18 @@ export function SettingsPage() {
 
     {notice && <div className="notice notice-success" role="status">{notice}</div>}
     {error && <div className="notice notice-error" role="alert">{error}</div>}
+
+    {isClubAdmin && <form className="surface-panel club-publication-settings" onSubmit={savePublication}>
+      <header className="section-heading"><div><p className="eyebrow">PERFIL DEL GIMNASIO</p><h2>Directorio público</h2></div></header>
+      <p className="page-description">Al publicar el gimnasio, los visitantes podrán ver su nombre, logo, descripción, dirección, contacto público y planes activos.</p>
+      {publicationNotice && <div className="notice notice-success" role="status">{publicationNotice}</div>}
+      {publicationError && <div className="notice notice-error" role="alert">{publicationError}</div>}
+      <label className="settings-toggle">
+        <span><strong>Mostrar mi gimnasio públicamente</strong><small>Puedes cambiar esta opción cuando quieras.</small></span>
+        <input type="checkbox" checked={clubIsPublic} onChange={(event) => setClubIsPublic(event.target.checked)} />
+      </label>
+      <div className="settings-save-row"><button className="button primary-btn" disabled={publicationBusy}>{publicationBusy ? 'Guardando...' : 'Guardar publicación'}</button></div>
+    </form>}
 
     <form className="settings-layout" onSubmit={saveProfile}>
       <details className="settings-accordion">

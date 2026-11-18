@@ -989,3 +989,105 @@ details.orphan-accounts-panel { display: block; border-radius: 16px; }
 }
 .modal-scrim { z-index: 70; }
 .form-dialog { padding-bottom: env(safe-area-inset-bottom); }
+
+.public-site { min-height: 100vh; background: var(--canvas); color: var(--ink); }
+.public-header { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); background: var(--paper); padding: 10px clamp(20px, 6vw, 88px); }
+.public-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-size: 13px; font-weight: 900; letter-spacing: .1em; text-decoration: none; }
+.public-brand-mark { width: 36px; height: 36px; display: grid; place-items: center; background: var(--boxing-red); color: #fff; font-size: 12px; letter-spacing: 0; }
+.public-login-link { border: 1px solid var(--line); padding: 8px 12px; color: var(--ink); font-size: 11px; font-weight: 700; text-decoration: none; }
+.public-login-link:hover { border-color: var(--boxing-red); color: var(--boxing-red); }
+.public-hero { position: relative; min-height: 460px; display: flex; align-items: center; overflow: hidden; background: #171719; padding: 55px clamp(20px, 10vw, 150px); color: #f7f4eb; }
+.public-hero::before { position: absolute; inset: 0; background: repeating-linear-gradient(132deg, transparent 0 52px, rgba(255,255,255,.035) 53px 54px); content: ""; }
+.public-hero-copy { position: relative; z-index: 1; width: min(100%, 660px); }
+.public-hero-copy .eyebrow { color: #ff7785; }
+.public-hero-copy h1 { margin: 15px 0 18px; font-family: Georgia, serif; font-size: clamp(42px, 6vw, 76px); font-weight: 500; line-height: 1.02; }
+.public-hero-copy h1 em { color: #ff7785; font-weight: 400; }
+.public-hero-copy > p:not(.eyebrow) { max-width: 540px; margin: 0 0 25px; color: rgba(247,244,235,.74); font-size: 15px; line-height: 1.7; }
+.public-hero-mark { position: absolute; right: 12%; width: 270px; height: 270px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: rgba(255,255,255,.08); font-family: Georgia, serif; font-size: 115px; font-weight: 700; }
+.public-hero-mark::before, .public-hero-mark::after { position: absolute; width: 190px; height: 1px; background: rgba(255,255,255,.1); content: ""; transform: rotate(45deg); }
+.public-hero-mark::after { transform: rotate(-45deg); }
+.public-hero-mark i { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--boxing-red); }
+.public-hero-mark i:nth-of-type(1) { top: 28px; left: 64px; }
+.public-hero-mark i:nth-of-type(2) { right: 24px; bottom: 86px; }
+.public-hero-mark i:nth-of-type(3) { bottom: 18px; left: 87px; }
+.public-club-section, .public-plan-section { max-width: 1200px; margin: 0 auto; padding: 62px 24px; }
+.public-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 23px; }
+.public-section-heading h2 { margin: 0; font-family: Georgia, serif; font-size: 32px; font-weight: 500; }
+.public-section-heading > p { max-width: 350px; margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.public-club-grid, .public-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.public-club-card { min-width: 0; display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 16px; border: 1px solid var(--line); background: var(--paper); padding: 15px; }
+.public-club-logo { width: 88px; height: 88px; display: grid; place-items: center; overflow: hidden; background: #ececee; color: var(--boxing-red); font-size: 23px; font-weight: 900; }
+.public-club-logo img, .public-detail-logo img { width: 100%; height: 100%; object-fit: cover; }
+.public-club-copy { min-width: 0; display: grid; gap: 8px; }
+.public-club-copy h3 { margin: 0; font-family: Georgia, serif; font-size: 19px; font-weight: 500; }
+.public-club-copy p, .public-detail-address { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
+.public-club-copy p svg, .public-detail-address svg { flex: 0 0 auto; color: var(--boxing-red); }
+.public-club-link, .public-back-link { width: fit-content; display: inline-flex; align-items: center; gap: 7px; color: var(--boxing-red); font-size: 11px; font-weight: 800; text-decoration: none; }
+.public-state { border: 1px solid var(--line); background: var(--paper); padding: 25px; color: var(--ink-soft); font-size: 12px; text-align: center; }
+.public-footer { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); padding: 20px clamp(20px, 6vw, 88px); color: var(--boxing-red); font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.public-footer span { color: var(--ink-soft); font-weight: 400; letter-spacing: 0; }
+.public-detail-page { display: grid; align-content: start; gap: 22px; }
+.public-detail-page .public-header { margin-bottom: 3px; }
+.public-back-link { margin: 4px clamp(20px, 6vw, 88px); color: var(--ink-soft); }
+.public-detail-hero { max-width: 1200px; width: calc(100% - 48px); display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: center; gap: 35px; margin: 0 auto; border: 1px solid var(--line); background: var(--paper); padding: clamp(20px, 5vw, 52px); }
+.public-detail-logo { width: 220px; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; background: #ececee; color: var(--boxing-red); font-size: 54px; font-weight: 900; }
+.public-detail-copy h1 { margin: 0 0 11px; font-family: Georgia, serif; font-size: clamp(32px, 5vw, 51px); font-weight: 500; }
+.public-detail-address { margin-bottom: 17px; }
+.public-detail-description { max-width: 700px; margin: 0 0 21px; color: var(--ink-soft); font-size: 14px; line-height: 1.7; white-space: pre-line; }
+.public-contact-button { width: fit-content; }
+.public-contact-empty { color: var(--ink-soft); font-size: 12px; }
+.public-detail-page .public-plan-section { width: 100%; padding: 15px 24px 20px; }
+.public-plan-card { display: grid; align-content: start; gap: 11px; border: 1px solid var(--line); border-top: 3px solid var(--boxing-red); background: var(--paper); padding: 20px; }
+.public-plan-duration { margin: 0; color: var(--boxing-red); font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.public-plan-card h3 { margin: 0; font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
+.public-plan-description { min-height: 42px; margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.55; white-space: pre-line; }
+.public-plan-price { margin-top: 5px; font-size: 22px; }
+.public-contact-details { display: flex; flex-wrap: wrap; gap: 16px; max-width: 1200px; width: calc(100% - 48px); margin: 0 auto 20px; }
+.public-contact-details a { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 12px; text-decoration: none; }
+.public-contact-details a svg { color: var(--boxing-red); }
+.plan-admin-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); align-items: start; gap: 25px; }
+.plan-admin-list { min-width: 0; }
+.plan-admin-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; border-top: 1px solid var(--line); padding: 15px 0; }
+.plan-admin-row h3 { margin: 8px 0 5px; font-family: Georgia, serif; font-size: 18px; font-weight: 500; }
+.plan-admin-row p, .plan-admin-row small { display: block; margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+.plan-admin-row small { margin-top: 5px; }
+.plan-admin-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 7px; }
+.plan-admin-actions .button { min-height: 36px; padding: 7px 10px; font-size: 10px; }
+.plan-admin-form { gap: 13px; border: 1px solid var(--line); background: var(--canvas); padding: 17px; }
+.plan-admin-form .section-heading { align-items: center; margin-bottom: 3px; }
+.plan-inactive { border-color: var(--line); background: var(--canvas); color: var(--ink-soft); }
+.club-publication-settings { display: grid; gap: 15px; }
+.club-publication-settings .section-heading { margin: 0; }
+.club-publication-settings .page-description { margin: -8px 0 0; }
+
+@media (max-width: 900px) {
+  .public-hero { min-height: 420px; }
+  .public-hero-mark { right: -80px; opacity: .5; }
+  .public-section-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .public-club-grid, .public-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .public-detail-hero { grid-template-columns: 150px minmax(0, 1fr); gap: 22px; }
+  .public-detail-logo { width: 150px; }
+  .plan-admin-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .public-header { min-height: 60px; padding-inline: 16px; }
+  .public-hero { min-height: 420px; padding: 42px 22px; }
+  .public-hero-copy h1 { font-size: 43px; }
+  .public-hero-copy > p:not(.eyebrow) { font-size: 13px; }
+  .public-hero-mark { right: -145px; width: 230px; height: 230px; }
+  .public-club-section, .public-plan-section { padding: 42px 16px; }
+  .public-section-heading h2 { font-size: 27px; }
+  .public-club-grid, .public-plan-grid { grid-template-columns: 1fr; }
+  .public-club-card { grid-template-columns: 72px minmax(0, 1fr); padding: 12px; }
+  .public-club-logo { width: 72px; height: 72px; }
+  .public-footer { flex-direction: column; padding: 17px 16px; }
+  .public-detail-hero { width: calc(100% - 32px); grid-template-columns: 1fr; padding: 20px; }
+  .public-detail-logo { width: 100%; max-height: 220px; aspect-ratio: 16 / 9; }
+  .public-detail-copy h1 { font-size: 35px; }
+  .public-back-link { margin-inline: 16px; }
+  .public-contact-details { width: calc(100% - 32px); flex-direction: column; gap: 12px; }
+  .plan-admin-row { align-items: flex-start; flex-direction: column; }
+  .plan-admin-actions { width: 100%; }
+  .plan-admin-actions .button { flex: 1; }
+}
