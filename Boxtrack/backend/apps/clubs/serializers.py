@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.clubs.models import Club
+from apps.clubs.models import Club, Plan
 
 
 class ClubSerializer(serializers.ModelSerializer):
@@ -26,3 +26,53 @@ class ClubVerificationSerializer(serializers.ModelSerializer):
         if value not in allowed:
             raise serializers.ValidationError('Estado de verificación no válido.')
         return value
+
+
+class ClubPublicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Club
+        fields = ['is_public']
+
+
+class PlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = ['id', 'name', 'description', 'price', 'duration', 'is_active', 'sort_order']
+        read_only_fields = ['id']
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('El nombre del plan es obligatorio.')
+        return value
+
+    def validate_duration(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Indica el tipo o duración del plan.')
+        return value
+
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError('El precio no puede ser negativo.')
+        return value
+
+
+class PublicPlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = ['id', 'name', 'description', 'price', 'duration']
+
+
+class PublicClubListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Club
+        fields = ['id', 'name', 'logo', 'address']
+
+
+class PublicClubDetailSerializer(serializers.ModelSerializer):
+    plans = PublicPlanSerializer(source='active_public_plans', many=True, read_only=True)
+
+    class Meta:
+        model = Club
+        fields = ['id', 'name', 'logo', 'description', 'address', 'phone', 'email', 'website', 'plans']

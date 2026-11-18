@@ -13,6 +13,7 @@ EXPECTED_TABLES = {
     'accounts.Role': 'roles',
     'accounts.User': 'usuarios',
     'clubs.Club': 'clubes',
+    'clubs.Plan': 'planes',
     'athletes.Athlete': 'deportistas',
     'trainers.TrainerProfile': 'perfiles_entrenadores',
     'groups.Group': 'grupos',

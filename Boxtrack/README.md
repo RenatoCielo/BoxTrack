@@ -131,6 +131,14 @@ Transferencia y pago presencial quedan como pedidos pendientes para confirmació
 
 Los perfiles marcados como competidores aparecen en **Boxeadores competidores**, separados del plantel general. Se les puede asignar un grupo de preparación; las cuentas de deportista solo ven las clases generales y las de su grupo. El récord se calcula automáticamente como victorias-derrotas-empates desde el historial, sin contar sparring.
 
+## Directorio público y planes
+
+La portada pública del frontend muestra los gimnasios que un administrador haya publicado desde **Configuración**. Sus páginas `/gimnasios/<id>` muestran los datos de contacto del club y sus planes activos; no hay pagos en línea. El ADMIN gestiona los planes desde **Planes del gimnasio** y puede desactivarlos sin eliminarlos.
+
+La API pública de solo lectura está en `GET /api/public/clubs/` y `GET /api/public/clubs/<id>/`. La administración autenticada usa `/api/clubs/plans/` y `/api/clubs/publication/`. Para crear las tablas y columnas, ejecuta `python manage.py migrate` desde `backend`.
+
+Para ejecutar las pruebas desde `backend`, usa `python -m pytest`.
+
 ## Nota importante
 
 Esta fase inicial crea la base del proyecto y la arquitectura recomendada para BOXTRACK. La funcionalidad real se desarrollará etapa por etapa, manteniendo una estructura modular y un diseño escalable para que Renato Cielo y Nicolás Merino puedan continuar el proyecto de manera ordenada.

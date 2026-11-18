@@ -56,6 +56,7 @@ const navigation = [
   { to: '/alerts', label: 'Alertas', icon: TriangleAlert, roles: ['ADMIN', 'TRAINER'] },
   { to: '/notifications', label: 'Notificaciones', icon: Bell, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
+  { to: '/plans', label: 'Planes del gimnasio', icon: ClipboardCheck, roles: ['ADMIN'] },
   { to: '/settings', label: 'Configuración', icon: Settings, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
 ];
 
@@ -63,6 +64,7 @@ const visibleNavigation = (user) => {
   const role = user?.is_superuser ? 'ADMIN' : user?.role;
   return navigation.filter((item) => {
     if (item.to === '/global-admin') return Boolean(user?.is_superuser);
+    if (item.to === '/plans') return user?.role === 'ADMIN' && Boolean(user?.club);
     return item.roles.includes(role);
   });
 };
