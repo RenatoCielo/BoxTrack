@@ -64,13 +64,25 @@ def login_view(request):
     if not identifier or not password:
         return Response({'detail': 'Ingresa tu nombre de usuario o correo y contraseña.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    user = User.objects.filter(username__iexact=identifier).first()
+    user = User.objects.select_related('club').filter(username__iexact=identifier).first()
     if user is None:
-        matching_email_users = User.objects.filter(email__iexact=identifier).order_by('id')
+        matching_email_users = User.objects.select_related('club').filter(email__iexact=identifier).order_by('id')
         if matching_email_users.count() == 1:
             user = matching_email_users.first()
 
-    if user is None or not user.check_password(password) or not user.is_active:
+    if user is None or not user.check_password(password):
+        return Response({'detail': 'Credenciales inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)
+    if not user.is_active:
+        if user.club and user.club.verification_status == 'REJECTED':
+            return Response(
+                {
+                    'detail': (
+                        'El registro de tu club fue rechazado. No puedes iniciar sesión; '
+                        'contacta al equipo de BOXTRACK si necesitas más información.'
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
         return Response({'detail': 'Credenciales inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)
 
     refresh = RefreshToken.for_user(user)

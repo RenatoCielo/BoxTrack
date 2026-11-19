@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getErrorMessage } from '../services/api';
@@ -11,8 +11,9 @@ const clubDisciplines = [
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login, register } = useAuth();
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(() => searchParams.get('registro') === 'club' ? 'register' : 'login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [customDiscipline, setCustomDiscipline] = useState('');

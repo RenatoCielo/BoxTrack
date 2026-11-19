@@ -60,7 +60,7 @@ export function GlobalAdminPage() {
                 <div className="agenda-info">
                   <strong>{club.name}</strong>
                   <span>RUT: {club.legal_rut || 'Sin RUT'} · Representante: {club.legal_representative_name || 'Sin datos'}</span>
-                  <span>Correo: {club.email || 'Sin correo'} · Disciplinas: {(club.disciplines || []).join(', ') || 'Sin disciplinas'}</span>
+                  <span>Correo: {club.email || 'Sin correo'} · Registrado: {new Date(club.created_at).toLocaleDateString('es-CL')}</span>
                 </div>
                 <div className="inline-actions">
                   <button className="button button-secondary" onClick={() => updateClubStatus(club.id, 'REJECTED')} disabled={busy}>

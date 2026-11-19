@@ -40,6 +40,7 @@ export function PublicHomePage() {
           <h1>Encuentra tu gimnasio.<br /><em>Empieza a entrenar.</em></h1>
           <p>BoxTrack conecta a quienes quieren aprender boxeo con gimnasios que comparten su información y planes. Conoce las opciones, revisa qué incluye cada plan y contacta directamente al club.</p>
           <a className="button primary-btn" href="#gimnasios">Explorar gimnasios <ArrowRight size={16} /></a>
+          <Link className="button button-secondary" to="/login?registro=club">¿Tienes un gimnasio? Súmate</Link>
         </div>
         <div className="public-hero-mark" aria-hidden="true"><span>BX</span><i /><i /><i /></div>
       </section>

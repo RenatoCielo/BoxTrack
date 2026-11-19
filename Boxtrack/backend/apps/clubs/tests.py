@@ -35,6 +35,49 @@ class ClubVerificationTests(APITestCase):
         self.club.refresh_from_db()
         self.assertEqual(self.club.verification_status, 'PENDING')
 
+    def test_only_superuser_can_list_pending_clubs(self):
+        self.client.force_authenticate(user=self.club_admin)
+
+        response = self.client.get(reverse('club-pending-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rejecting_club_deactivates_all_users_and_blocks_login_clearly(self):
+        athlete_role = Role.objects.create(name='ATHLETE', description='Deportista')
+        athlete = User.objects.create_user(
+            username='club-athlete',
+            password='Password123!',
+            role=athlete_role,
+            club=self.club,
+        )
+        self.club.is_public = True
+        self.club.save(update_fields=['is_public'])
+        self.client.force_authenticate(user=self.superuser)
+
+        response = self.client.patch(
+            reverse('club-review', kwargs={'pk': self.club.pk}),
+            {'verification_status': 'REJECTED'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.club.refresh_from_db()
+        self.club_admin.refresh_from_db()
+        athlete.refresh_from_db()
+        self.assertEqual(self.club.verification_status, 'REJECTED')
+        self.assertFalse(self.club.is_public)
+        self.assertFalse(self.club_admin.is_active)
+        self.assertFalse(athlete.is_active)
+
+        self.client.force_authenticate(user=None)
+        login_response = self.client.post(
+            reverse('login'),
+            {'username': 'clubadmin', 'password': 'Password123!'},
+            format='json',
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('fue rechazado', login_response.data['detail'])
+
 
 class PublicClubAndPlanTests(APITestCase):
     def setUp(self):
@@ -50,6 +93,7 @@ class PublicClubAndPlanTests(APITestCase):
             email='contacto@club.test',
             website='https://club.test',
             is_public=True,
+            verification_status='APPROVED',
         )
         self.hidden_club = Club.objects.create(name='Club privado', is_public=False)
         self.admin_role = Role.objects.create(name='ADMIN', description='Administrador')
@@ -107,6 +151,28 @@ class PublicClubAndPlanTests(APITestCase):
             set(detail_response.data['plans'][0]),
             {'id', 'name', 'description', 'price', 'duration'},
         )
+
+    def test_pending_and_rejected_clubs_are_hidden_from_public_list_and_detail(self):
+        pending = Club.objects.create(
+            name='Club pendiente público',
+            is_public=True,
+            verification_status='PENDING',
+        )
+        rejected = Club.objects.create(
+            name='Club rechazado público',
+            is_public=True,
+            verification_status='REJECTED',
+        )
+
+        list_response = self.client.get(reverse('public-club-list'))
+        pending_detail = self.client.get(reverse('public-club-detail', kwargs={'pk': pending.pk}))
+        rejected_detail = self.client.get(reverse('public-club-detail', kwargs={'pk': rejected.pk}))
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_clubs = list_response.data.get('results', list_response.data)
+        self.assertEqual([club['id'] for club in listed_clubs], [self.public_club.pk])
+        self.assertEqual(pending_detail.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(rejected_detail.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_anonymous_visitor_cannot_create_or_edit_public_club_data(self):
         create_response = self.client.post(reverse('public-club-list'), {'name': 'Club no autorizado'}, format='json')
@@ -166,3 +232,44 @@ class PublicClubAndPlanTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.public_club.refresh_from_db()
         self.assertFalse(self.public_club.is_public)
+
+    def test_pending_admin_cannot_publish_but_can_manage_plans(self):
+        self.public_club.verification_status = 'PENDING'
+        self.public_club.is_public = False
+        self.public_club.save(update_fields=['verification_status', 'is_public'])
+        self.client.force_authenticate(user=self.admin)
+
+        publication_response = self.client.patch(
+            reverse('club-publication'),
+            {'is_public': True},
+            format='json',
+        )
+        plan_response = self.client.post(reverse('club-plans'), {
+            'name': 'Plan mientras espera',
+            'price': '35000',
+            'duration': 'Mensual',
+        }, format='json')
+
+        self.assertEqual(publication_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(plan_response.status_code, status.HTTP_201_CREATED)
+        self.public_club.refresh_from_db()
+        self.assertFalse(self.public_club.is_public)
+
+    def test_admin_cannot_modify_own_verification_status(self):
+        self.client.force_authenticate(user=self.admin)
+
+        review_response = self.client.patch(
+            reverse('club-review', kwargs={'pk': self.public_club.pk}),
+            {'verification_status': 'REJECTED'},
+            format='json',
+        )
+        publication_response = self.client.patch(
+            reverse('club-publication'),
+            {'is_public': False, 'verification_status': 'REJECTED'},
+            format='json',
+        )
+
+        self.assertEqual(review_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(publication_response.status_code, status.HTTP_200_OK)
+        self.public_club.refresh_from_db()
+        self.assertEqual(self.public_club.verification_status, 'APPROVED')

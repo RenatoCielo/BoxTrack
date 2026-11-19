@@ -11,8 +11,8 @@ from apps.weight_tracking.models import WeightRecord
 class WeightRecordTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.club = Club.objects.create(name='Club Peso', email='weight@test.com')
-        self.other_club = Club.objects.create(name='Otro Club', email='other-weight@test.com')
+        self.club = Club.objects.create(name='Club Peso', email='weight@test.com', verification_status='APPROVED')
+        self.other_club = Club.objects.create(name='Otro Club', email='other-weight@test.com', verification_status='APPROVED')
         role = Role.objects.create(name='ADMIN', description='Administrador')
         trainer_role = Role.objects.create(name='TRAINER', description='Entrenador')
         self.admin = User.objects.create_user(username='admin-weight', password='Password123!', club=self.club, role=role)

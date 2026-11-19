@@ -28,10 +28,26 @@ class ClubVerificationSerializer(serializers.ModelSerializer):
         return value
 
 
+class ClubPendingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Club
+        fields = [
+            'id', 'name', 'legal_rut', 'legal_representative_name',
+            'email', 'created_at',
+        ]
+
+
 class ClubPublicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Club
         fields = ['is_public']
+
+    def validate_is_public(self, value):
+        if self.instance.verification_status != 'APPROVED':
+            raise serializers.ValidationError(
+                'Solo puedes cambiar la publicación cuando tu club esté aprobado.'
+            )
+        return value
 
 
 class PlanSerializer(serializers.ModelSerializer):

@@ -29,6 +29,13 @@ export function SettingsPage() {
   const [publicationNotice, setPublicationNotice] = useState('');
 
   const isClubAdmin = user?.role === 'ADMIN';
+  const verificationStatus = user?.club?.verification_status;
+  const isClubApproved = verificationStatus === 'APPROVED';
+  const verificationStatusLabel = {
+    PENDING: 'Pendiente',
+    APPROVED: 'Aprobado',
+    REJECTED: 'Rechazado',
+  }[verificationStatus] || 'Sin estado';
 
   useEffect(() => {
     setProfile(initialProfile(user));
@@ -123,13 +130,21 @@ export function SettingsPage() {
     {isClubAdmin && <form className="surface-panel club-publication-settings" onSubmit={savePublication}>
       <header className="section-heading"><div><p className="eyebrow">PERFIL DEL GIMNASIO</p><h2>Directorio público</h2></div></header>
       <p className="page-description">Al publicar el gimnasio, los visitantes podrán ver su nombre, logo, descripción, dirección, contacto público y planes activos.</p>
+      <div className={`notice${verificationStatus === 'REJECTED' ? ' notice-error' : ''}`} role="status">
+        <strong>Verificación: {verificationStatusLabel}.</strong>{' '}
+        {verificationStatus === 'PENDING'
+          ? 'Tu club está pendiente de verificación y aún no aparece en la portada pública.'
+          : verificationStatus === 'REJECTED'
+            ? 'El club fue rechazado y no aparece en la portada pública.'
+            : 'Tu club está aprobado y puede aparecer en la portada pública.'}
+      </div>
       {publicationNotice && <div className="notice notice-success" role="status">{publicationNotice}</div>}
       {publicationError && <div className="notice notice-error" role="alert">{publicationError}</div>}
       <label className="settings-toggle">
-        <span><strong>Mostrar mi gimnasio públicamente</strong><small>Puedes cambiar esta opción cuando quieras.</small></span>
-        <input type="checkbox" checked={clubIsPublic} onChange={(event) => setClubIsPublic(event.target.checked)} />
+        <span><strong>Mostrar mi gimnasio públicamente</strong><small>{isClubApproved ? 'Puedes cambiar esta opción cuando quieras.' : 'Solo puedes cambiar esta opción cuando tu club esté aprobado.'}</small></span>
+        <input type="checkbox" checked={clubIsPublic} disabled={!isClubApproved} onChange={(event) => setClubIsPublic(event.target.checked)} />
       </label>
-      <div className="settings-save-row"><button className="button primary-btn" disabled={publicationBusy}>{publicationBusy ? 'Guardando...' : 'Guardar publicación'}</button></div>
+      <div className="settings-save-row"><button className="button primary-btn" disabled={publicationBusy || !isClubApproved}>{publicationBusy ? 'Guardando...' : 'Guardar publicación'}</button></div>
     </form>}
 
     <form className="settings-layout" onSubmit={saveProfile}>

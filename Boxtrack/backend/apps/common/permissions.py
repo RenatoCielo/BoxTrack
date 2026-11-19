@@ -31,6 +31,13 @@ def can_view_user_phone(target_user, viewer):
     return target_user.share_phone
 
 
+class SuperuserOnlyPermission(BasePermission):
+    message = 'Solo el superusuario de la plataforma puede realizar esta operación.'
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
 class ClubRolePermission(BasePermission):
     allowed_roles = ()
     write_roles = None
@@ -51,7 +58,7 @@ class ClubRolePermission(BasePermission):
                 role == 'ADMIN'
                 and club
                 and club.is_active
-                and club.verification_status in ('PENDING', 'IN_REVIEW', 'NEEDS_INFO')
+                and club.verification_status == 'PENDING'
             )
             if not can_manage_pending_club:
                 return False
