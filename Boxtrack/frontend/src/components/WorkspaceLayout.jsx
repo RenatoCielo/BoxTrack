@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Bell, CalendarDays, KeyRound, LayoutDashboard, LogOut, Menu, Settings, X,
-  Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag, TriangleAlert
+  Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag, TriangleAlert,
+  FileSpreadsheet, Scale
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getErrorMessage } from '../services/api';
@@ -50,10 +51,14 @@ const navigation = [
   { to: '/athletes', label: 'Deportistas', icon: Users, roles: ['ADMIN', 'TRAINER'] },
   { to: '/competitors', label: 'Boxeadores competidores', icon: Trophy, roles: ['ADMIN', 'TRAINER'] },
   { to: '/trainers', label: 'Entrenadores', icon: Shield, roles: ['ADMIN'] },
+  { to: '/groups', label: 'Grupos', icon: Users, roles: ['ADMIN'] },
   { to: '/trainings', label: 'Clases y cupos', icon: CalendarDays, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck, roles: ['ADMIN', 'TRAINER'] },
+  { to: '/evaluations', label: 'Evaluaciones', icon: ClipboardCheck, roles: ['ADMIN', 'TRAINER'] },
+  { to: '/weight', label: 'Control de peso', icon: Scale, roles: ['ADMIN', 'TRAINER'] },
   { to: '/fights', label: 'Historial de combates', icon: Swords, roles: ['ADMIN', 'TRAINER'] },
   { to: '/alerts', label: 'Alertas', icon: TriangleAlert, roles: ['ADMIN', 'TRAINER'] },
+  { to: '/reports', label: 'Reportes', icon: FileSpreadsheet, roles: ['ADMIN'] },
   { to: '/notifications', label: 'Notificaciones', icon: Bell, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/plans', label: 'Planes del gimnasio', icon: ClipboardCheck, roles: ['ADMIN'] },
