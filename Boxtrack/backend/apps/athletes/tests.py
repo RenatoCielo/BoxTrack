@@ -12,8 +12,8 @@ from apps.groups.models import Group
 class AthleteManagementTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.club = Club.objects.create(name='Club Deportivo', email='club@demo.com')
-        self.other_club = Club.objects.create(name='Otro Club', email='otro@demo.com')
+        self.club = Club.objects.create(name='Club Deportivo', email='club@demo.com', verification_status='APPROVED')
+        self.other_club = Club.objects.create(name='Otro Club', email='otro@demo.com', verification_status='APPROVED')
         self.admin_role = Role.objects.create(name='ADMIN', description='Administrador')
         self.trainer_role = Role.objects.create(name='TRAINER', description='Entrenador')
 

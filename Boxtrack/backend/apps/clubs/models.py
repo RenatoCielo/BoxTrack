@@ -17,9 +17,7 @@ def club_verification_upload_path(instance, filename):
 
 class Club(SpanishSchemaModel):
     VERIFICATION_STATUS_CHOICES = [
-        ('PENDING', 'Pendiente de documentos'),
-        ('IN_REVIEW', 'En revisión'),
-        ('NEEDS_INFO', 'Requiere información'),
+        ('PENDING', 'Pendiente'),
         ('APPROVED', 'Aprobado'),
         ('REJECTED', 'Rechazado'),
     ]
@@ -28,7 +26,7 @@ class Club(SpanishSchemaModel):
     legal_rut = models.CharField(max_length=20, blank=True, default='')
     legal_representative_name = models.CharField(max_length=200, blank=True, default='')
     legal_representative_rut = models.CharField(max_length=20, blank=True, default='')
-    verification_status = models.CharField(max_length=16, choices=VERIFICATION_STATUS_CHOICES, default='APPROVED')
+    verification_status = models.CharField(max_length=16, choices=VERIFICATION_STATUS_CHOICES, default='PENDING')
     verification_document = models.FileField(storage=private_verification_storage, upload_to=club_verification_upload_path, blank=True, null=True)
     verification_note = models.TextField(blank=True)
     verification_submitted_at = models.DateTimeField(null=True, blank=True)

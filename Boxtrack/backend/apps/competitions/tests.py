@@ -10,8 +10,8 @@ from apps.clubs.models import Club
 class FightRecordTests(APITestCase):
     def setUp(self):
         self.client = APIClient()
-        self.club = Club.objects.create(name='Club Demo', email='demo@club.com')
-        self.other_club = Club.objects.create(name='Otro Club', email='otro@club.com')
+        self.club = Club.objects.create(name='Club Demo', email='demo@club.com', verification_status='APPROVED')
+        self.other_club = Club.objects.create(name='Otro Club', email='otro@club.com', verification_status='APPROVED')
         self.admin_role = Role.objects.create(name='ADMIN', description='Administrador')
         self.trainer_role = Role.objects.create(name='TRAINER', description='Entrenador')
 
