@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { getErrorMessage } from '../services/api';
 
@@ -78,14 +78,11 @@ export function LoginPage() {
         <div className="auth-footnote"><ShieldCheck size={16} /> Datos separados y protegidos por club</div>
       </section>
       <section className="auth-panel">
+        <Link to="/" className="public-club-link"><ArrowLeft size={15} />Volver a los gimnasios</Link>
         <div className="auth-panel-heading">
           <p className="eyebrow">Acceso seguro</p>
           <h2>{mode === 'login' ? 'Inicia sesión' : 'Registra tu club'}</h2>
           <p>{mode === 'login' ? 'Ingresa con tu nombre de usuario o correo.' : 'Crea la cuenta administradora de tu club.'}</p>
-        </div>
-        <div className="auth-tabs" role="tablist" aria-label="Tipo de acceso">
-          <button type="button" className={mode === 'login' ? 'selected' : ''} onClick={() => { setMode('login'); setError(''); }}>Iniciar sesión</button>
-          <button type="button" className={mode === 'register' ? 'selected' : ''} onClick={() => { setMode('register'); setError(''); }}>Crear club</button>
         </div>
         <form className="auth-form" onSubmit={submit}>
           {mode === 'register' && <>
@@ -123,7 +120,20 @@ export function LoginPage() {
             {!busy && <ArrowRight size={17} />}
           </button>
         </form>
-        <p className="auth-hint">La cuenta inicial del registro queda como administradora del club.</p>
+        {mode === 'register' && <p className="auth-hint">
+          ¿Ya tienes cuenta?{' '}
+          <a
+            href="/login"
+            className="public-club-link"
+            onClick={(event) => {
+              event.preventDefault();
+              setMode('login');
+              setError('');
+            }}
+          >
+            Inicia sesión
+          </a>
+        </p>}
       </section>
     </main>
   );
