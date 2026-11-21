@@ -54,6 +54,31 @@ class StoreTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_product_image_accepts_the_local_store_artwork_url(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(reverse('store-products'), {
+            'name': 'Protector bucal',
+            'category': 'MOUTHGUARD',
+            'sku': '',
+            'price': '8000',
+            'stock': 3,
+            'image_url': '/product-artwork.svg',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['image_url'], '/product-artwork.svg')
+
+        invalid = self.client.post(reverse('store-products'), {
+            'name': 'Producto con ruta externa',
+            'category': 'OTHER',
+            'sku': '',
+            'price': '8000',
+            'stock': 3,
+            'image_url': '/assets/unknown.svg',
+        }, format='json')
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('image_url', invalid.data)
+
     def test_order_reserves_stock_and_persists_snapshot(self):
         self.client.force_authenticate(user=self.athlete)
         response = self.client.post(reverse('store-orders'), {

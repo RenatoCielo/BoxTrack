@@ -48,6 +48,26 @@ class AthleteManagementTests(APITestCase):
         self.assertEqual(Athlete.objects.filter(club=self.club).count(), 1)
         self.assertEqual(response.data['first_name'], 'Carlos')
 
+    def test_admin_can_complete_competitor_gender_with_partial_update(self):
+        athlete = Athlete.objects.create(
+            club=self.club,
+            first_name='Camila',
+            last_name='Vera',
+            status='ACTIVE',
+            is_competitor=True,
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(
+            reverse('athlete-detail', kwargs={'pk': athlete.pk}),
+            {'gender': 'F'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        athlete.refresh_from_db()
+        self.assertEqual(athlete.gender, 'F')
+
     def test_zero_group_value_is_treated_as_empty_group(self):
         self.client.force_authenticate(user=self.admin_user)
         payload = {
@@ -229,5 +249,7 @@ class AthleteManagementTests(APITestCase):
 
         self.assertEqual([item['id'] for item in competitor_response.data['results']], [competitor.pk])
         self.assertEqual(competitor_response.data['results'][0]['fight_record'], '1-1-0')
+        self.assertEqual(competitor_response.data['results'][0]['recorded_fights'], 2)
         self.assertEqual([item['id'] for item in regular_response.data['results']], [regular_athlete.pk])
         self.assertEqual(regular_response.data['results'][0]['fight_record'], '0-0-0')
+        self.assertEqual(regular_response.data['results'][0]['recorded_fights'], 0)

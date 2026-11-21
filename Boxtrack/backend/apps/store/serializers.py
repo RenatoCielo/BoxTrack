@@ -1,15 +1,30 @@
 from pathlib import Path
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from rest_framework import serializers
 
 from apps.store.models import Order, OrderItem, Product
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    image_url = serializers.CharField(required=False, allow_blank=True, max_length=200)
+
     class Meta:
         model = Product
         fields = ['id', 'club', 'name', 'description', 'category', 'sku', 'price', 'stock', 'image_url', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'club', 'created_at', 'updated_at']
+
+    def validate_image_url(self, value):
+        if value == '/product-artwork.svg' or not value:
+            return value
+        try:
+            URLValidator()(value)
+        except DjangoValidationError:
+            raise serializers.ValidationError(
+                'Ingresa una URL válida o usa /product-artwork.svg.'
+            )
+        return value
 
     def validate_price(self, value):
         if value <= 0:

@@ -29,6 +29,7 @@ class User(AbstractUser, SpanishSchemaModel, metaclass=SpanishSchemaModelBase):
     nickname = models.CharField(max_length=50, blank=True)
     use_nickname = models.BooleanField(default=False)
     share_phone = models.BooleanField(default=True)
+    profile_photo = models.ImageField(upload_to='users/profile-photos/', blank=True, null=True)
     must_change_password = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

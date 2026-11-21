@@ -1,17 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Check, Copy, Pencil, Plus, Search, Trash2, UserRoundCheck, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { api, getErrorMessage, readCollection } from '../services/api';
 
 const athleteDisplayName = (athlete) => athlete?.display_name || [athlete?.first_name, athlete?.last_name].filter(Boolean).join(' ') || 'Deportista';
+const localToday = () => {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
+};
+const trainingChoiceLabel = (training) => {
+  const date = training.scheduled_date
+    ? new Date(`${training.scheduled_date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })
+    : 'Sin fecha';
+  return `${date} · ${training.start_time?.slice(0, 5) || 'Sin hora'} · ${training.title}`;
+};
 
 const resourceConfig = {
   athletes: {
-    title: 'Deportistas', eyebrow: 'PLANTEL', description: 'Plantel completo del gimnasio, incluidos los boxeadores competidores.', endpoint: '/athletes/',
+    title: 'Mis deportistas', eyebrow: 'PLANTEL', description: 'Administra a tus deportistas y competidores desde una sola lista.', endpoint: '/athletes/',
     fields: [
       { name: 'first_name', label: 'Nombre', required: true },
       { name: 'last_name', label: 'Apellido', required: true },
+      { name: 'gender', label: 'Género', type: 'select', options: [['M', 'Masculino'], ['F', 'Femenino'], ['X', 'Otro']], help: 'Necesario para recomendar cruces compatibles.' },
       { name: 'phone', label: 'Teléfono', type: 'tel', placeholder: '+56912345678' },
       { name: 'status', label: 'Estado', type: 'select', options: [['ACTIVE', 'Activo'], ['INACTIVE', 'Inactivo']] },
       { name: 'is_competitor', label: 'Integrar equipo competitivo', type: 'checkbox', defaultValue: false },
@@ -24,27 +36,10 @@ const resourceConfig = {
     ],
     columns: [
       { label: 'Deportista', value: (row) => athleteDisplayName(row) },
+      { label: 'Perfil', value: (row) => <span className={`status-tag ${row.is_competitor ? 'is-competitor' : ''}`}>{row.is_competitor ? 'Competidor' : 'Deportista'}</span> },
       { label: 'Categoría', key: 'category' },
       { label: 'Peso', value: (row) => row.registered_weight ? `${row.registered_weight} kg` : '—' },
-      { label: 'Estado', value: (row) => <span className={`status-pill ${row.status === 'ACTIVE' ? 'is-active' : ''}`}>{row.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</span> }
-    ],
-    search: (row) => `${athleteDisplayName(row)} ${row.category || ''}`
-  },
-  competitors: {
-    title: 'Boxeadores competidores', eyebrow: 'EQUIPO COMPETITIVO', description: 'Atletas con preparación competitiva y récord de combates actualizado.', endpoint: '/athletes/', listEndpoint: '/athletes/?is_competitor=true',
-    fields: [
-      { name: 'first_name', label: 'Nombre', required: true },
-      { name: 'last_name', label: 'Apellido', required: true },
-      { name: 'category', label: 'Categoría de competencia' },
-      { name: 'registered_weight', label: 'Peso actual (kg)', type: 'number', step: '0.01' },
-      { name: 'status', label: 'Estado', type: 'select', options: [['ACTIVE', 'Activo'], ['INACTIVE', 'Inactivo']] },
-      { name: 'is_competitor', label: 'Equipo competitivo', type: 'checkbox', defaultValue: true }
-    ],
-    columns: [
-      { label: 'Boxeador', value: (row) => athleteDisplayName(row) },
-      { label: 'Categoría', key: 'category' },
-      { label: 'Peso', value: (row) => row.registered_weight ? `${row.registered_weight} kg` : '—' },
-      { label: 'Récord', value: (row) => <strong className="fight-record">{row.fight_record || '0-0-0'}</strong> },
+      { label: 'Récord', value: (row) => row.is_competitor ? <strong className="fight-record">{row.fight_record || '0-0-0'} · {row.recorded_fights || 0}</strong> : '—' },
       { label: 'Estado', value: (row) => <span className={`status-pill ${row.status === 'ACTIVE' ? 'is-active' : ''}`}>{row.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</span> }
     ],
     search: (row) => `${athleteDisplayName(row)} ${row.category || ''}`
@@ -106,17 +101,17 @@ const resourceConfig = {
     title: 'Asistencia', eyebrow: 'CONTROL DE CLASE', description: 'Marca y actualiza la asistencia efectiva de cada deportista.', endpoint: '/attendance/',
     fields: [
       { name: 'athlete', label: 'Deportista', type: 'relation', endpoint: '/athletes/', optionLabel: athleteDisplayName, required: true },
-      { name: 'training', label: 'Clase', type: 'relation', endpoint: '/trainings/', optionLabel: 'title', required: true },
+      { name: 'training', label: 'Clase del día', type: 'relation', endpoint: '/trainings/', optionLabel: trainingChoiceLabel, relationFilter: (training, date) => training.scheduled_date === date && training.scheduled_date <= localToday() && training.status !== 'CANCELLED', required: true },
       { name: 'status', label: 'Asistencia', type: 'select', options: [['PRESENT', 'Presente'], ['ABSENT', 'Ausente'], ['JUSTIFIED', 'Justificado'], ['LATE', 'Atrasado']] },
       { name: 'notes', label: 'Observación', type: 'textarea' }
     ],
     columns: [
       { label: 'Deportista', value: (row, context) => { const athlete = context.athletes.find((item) => item.id === row.athlete); return athlete ? athleteDisplayName(athlete) : `#${row.athlete}`; } },
-      { label: 'Clase', value: (row, context) => context.trainings.find((item) => item.id === row.training)?.title || `#${row.training}` },
+      { label: 'Clase · día y hora', value: (row, context) => { const training = context.trainings.find((item) => item.id === row.training); return training ? trainingChoiceLabel(training) : `#${row.training}`; } },
       { label: 'Estado', value: (row) => <span className="status-pill">{({ PRESENT: 'Presente', ABSENT: 'Ausente', JUSTIFIED: 'Justificado', LATE: 'Atrasado' })[row.status] || row.status}</span> },
       { label: 'Registrado', value: (row) => row.registered_at ? new Date(row.registered_at).toLocaleDateString('es-CL') : '—' }
     ],
-    search: (row, context) => { const athlete = context.athletes.find((item) => item.id === row.athlete); const training = context.trainings.find((item) => item.id === row.training); return `${athleteDisplayName(athlete)} ${training?.title || ''} ${row.status}`; }
+    search: (row, context) => { const athlete = context.athletes.find((item) => item.id === row.athlete); const training = context.trainings.find((item) => item.id === row.training); return `${athleteDisplayName(athlete)} ${training ? trainingChoiceLabel(training) : ''} ${row.status}`; }
   },
   evaluations: {
     title: 'Evaluaciones', eyebrow: 'SEGUIMIENTO TÉCNICO', description: 'Registra la evolución deportiva por deportista.', endpoint: '/evaluations/',
@@ -153,25 +148,6 @@ const resourceConfig = {
     ],
     search: (row, context) => { const athlete = context.athletes.find((item) => item.id === row.athlete); return `${athleteDisplayName(athlete)} ${row.recorded_date}`; }
   },
-  alerts: {
-    title: 'Alertas', eyebrow: 'SEGUIMIENTO DEL CLUB', description: 'Registra incidencias y marca las que ya fueron resueltas.', endpoint: '/alerts/',
-    fields: [
-      { name: 'title', label: 'Título', required: true },
-      { name: 'level', label: 'Prioridad', type: 'select', options: [['INFO', 'Información'], ['WARNING', 'Advertencia'], ['CRITICAL', 'Crítica']] },
-      { name: 'athlete', label: 'Deportista relacionado', type: 'relation', endpoint: '/athletes/', optionLabel: athleteDisplayName },
-      { name: 'source', label: 'Origen' },
-      { name: 'message', label: 'Detalle', type: 'textarea', required: true },
-      { name: 'is_resolved', label: 'Estado', type: 'select', options: [['false', 'Pendiente'], ['true', 'Resuelta']] }
-    ],
-    columns: [
-      { label: 'Alerta', key: 'title' },
-      { label: 'Deportista', value: (row, context) => { const athlete = context.athletes.find((item) => item.id === row.athlete); return athlete ? athleteDisplayName(athlete) : 'Club'; } },
-      { label: 'Nivel', value: (row) => <span className={`result-pill result-${row.level === 'CRITICAL' ? 'loss' : row.level === 'WARNING' ? 'draw' : 'win'}`}>{({ INFO: 'Información', WARNING: 'Advertencia', CRITICAL: 'Crítica' })[row.level] || row.level}</span> },
-      { label: 'Creada', value: (row) => row.created_at ? new Date(row.created_at).toLocaleDateString('es-CL') : '—' },
-      { label: 'Estado', value: (row) => <span className={`status-pill ${row.is_resolved ? 'is-active' : ''}`}>{row.is_resolved ? 'Resuelta' : 'Pendiente'}</span> }
-    ],
-    search: (row, context) => { const athlete = context.athletes.find((item) => item.id === row.athlete); return `${row.title} ${row.message} ${athleteDisplayName(athlete)}`; }
-  }
 };
 
 function emptyValues(fields) {
@@ -202,8 +178,9 @@ function memberConfig(section) {
       { name: 'phone', label: 'Teléfono', type: 'tel', placeholder: '+56912345678' },
       ...(isAthlete
         ? [
+            { name: 'gender', label: 'Género', type: 'select', options: [['M', 'Masculino'], ['F', 'Femenino'], ['X', 'Otro']] },
             { name: 'category', label: 'Categoría deportiva' },
-            { name: 'is_competitor', label: 'Integrar equipo de competidores', type: 'checkbox', defaultValue: section === 'competitors' }
+            { name: 'is_competitor', label: 'Integrar equipo de competidores', type: 'checkbox', defaultValue: false }
           ]
         : [
             { name: 'professional_title', label: 'Cargo o título' },
@@ -268,6 +245,7 @@ function MemberCredentialsDialog({ credentials, onClose }) {
 
 export function ResourcePage({ section: providedSection }) {
   const routeParams = useParams();
+  const [searchParams] = useSearchParams();
   const section = providedSection || routeParams.section;
   const config = resourceConfig[section];
   const [rows, setRows] = useState([]);
@@ -275,7 +253,8 @@ export function ResourcePage({ section: providedSection }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [athleteTypeFilter, setAthleteTypeFilter] = useState('ALL');
+  const [attendanceDate, setAttendanceDate] = useState(localToday);
+  const [athleteTypeFilter, setAthleteTypeFilter] = useState(() => searchParams.get('profile') === 'COMPETITORS' ? 'COMPETITORS' : 'ALL');
   const [athleteStatusFilter, setAthleteStatusFilter] = useState('ALL');
   const [editing, setEditing] = useState(null);
   const [accountDialog, setAccountDialog] = useState(false);
@@ -284,9 +263,9 @@ export function ResourcePage({ section: providedSection }) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const { user } = useAuth();
-  const trainerWriteSections = ['attendance', 'fights', 'evaluations', 'weight', 'alerts'];
+  const trainerWriteSections = ['attendance', 'fights', 'evaluations', 'weight'];
   const canManage = user?.role === 'ADMIN' || (user?.role === 'TRAINER' && trainerWriteSections.includes(section));
-  const accountManagedSection = ['athletes', 'competitors', 'trainers'].includes(section);
+  const accountManagedSection = ['athletes', 'trainers'].includes(section);
 
   const load = async () => {
     setLoading(true);
@@ -298,7 +277,7 @@ export function ResourcePage({ section: providedSection }) {
       ]);
       setRows(items);
       const relationFields = config.fields.filter((field) => field.type === 'relation');
-      setRelations(Object.fromEntries(relationFields.map((field) => [field.name, relationRows[[...new Set(relationFields.map((item) => item.endpoint))].indexOf(field.endpoint)].filter((row) => !field.relationFilter || field.relationFilter(row))])));
+      setRelations(Object.fromEntries(relationFields.map((field) => [field.name, relationRows[[...new Set(relationFields.map((item) => item.endpoint))].indexOf(field.endpoint)].filter((row) => !field.relationFilter || field.relationFilter(row, attendanceDate))])));
       if (section === 'athletes' && user?.role === 'ADMIN') {
         const [accounts, allAthletes] = await Promise.all([
           readCollection('/auth/members/'),
@@ -316,10 +295,11 @@ export function ResourcePage({ section: providedSection }) {
     }
   };
 
-  useEffect(() => { load(); }, [config.listEndpoint || config.endpoint, section, user?.role]);
+  useEffect(() => { load(); }, [config.listEndpoint || config.endpoint, section, user?.role, attendanceDate]);
 
   const context = useMemo(() => ({ athletes: relations.athlete || [], groups: relations.group || [], trainings: relations.training || [] }), [relations]);
   const filtered = rows.filter((row) => {
+    if (section === 'attendance' && !(relations.training || []).some((training) => training.id === row.training)) return false;
     if (section === 'athletes' && athleteTypeFilter === 'COMPETITORS' && !row.is_competitor) return false;
     if (section === 'athletes' && athleteTypeFilter === 'GENERAL' && row.is_competitor) return false;
     if (section === 'athletes' && athleteStatusFilter !== 'ALL' && row.status !== athleteStatusFilter) return false;
@@ -413,7 +393,7 @@ export function ResourcePage({ section: providedSection }) {
   return (
     <section className="page-stack">
       <header className="page-heading"><div><p className="eyebrow">{config.eyebrow}</p><h1>{config.title}</h1><p className="page-description">{config.description}</p></div><div className="heading-actions">{user?.role === 'ADMIN' && accountManagedSection && <button className="button primary-btn" onClick={() => { setAccountDialog(true); setFormError(''); }}><Plus size={16} /> Crear cuenta</button>}{canManage && !accountManagedSection && <button className="button primary-btn" onClick={() => { setEditing(emptyValues(config.fields)); setFormError(''); }}><Plus size={16} /> Nuevo registro</button>}</div></header>
-      <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label={`Buscar en ${config.title}`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>{section === 'athletes' && <div className="athlete-filters"><select className="control" aria-label="Filtrar por perfil" value={athleteTypeFilter} onChange={(event) => setAthleteTypeFilter(event.target.value)}><option value="ALL">Todos los perfiles</option><option value="GENERAL">Generales</option><option value="COMPETITORS">Competidores</option></select><select className="control" aria-label="Filtrar por estado" value={athleteStatusFilter} onChange={(event) => setAthleteStatusFilter(event.target.value)}><option value="ALL">Todos los estados</option><option value="ACTIVE">Activos</option><option value="INACTIVE">Inactivos</option></select></div>}<span className="table-count">{filtered.length} registros</span></div>
+      <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label={`Buscar en ${config.title}`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>{section === 'athletes' && <div className="athlete-filters"><select className="control" aria-label="Filtrar por perfil" value={athleteTypeFilter} onChange={(event) => setAthleteTypeFilter(event.target.value)}><option value="ALL">Todos los perfiles</option><option value="GENERAL">Solo deportistas</option><option value="COMPETITORS">Boxeadores competidores</option></select><select className="control" aria-label="Filtrar por estado" value={athleteStatusFilter} onChange={(event) => setAthleteStatusFilter(event.target.value)}><option value="ALL">Todos los estados</option><option value="ACTIVE">Activos</option><option value="INACTIVE">Inactivos</option></select></div>}{section === 'attendance' && <label className="attendance-date-filter"><span>Clases del día</span><input className="control" type="date" max={localToday()} value={attendanceDate} onChange={(event) => setAttendanceDate(event.target.value)} /></label>}<span className="table-count">{filtered.length} registros</span></div>
       {error && <div className="notice notice-error">{error}</div>}
       {section === 'athletes' && user?.role === 'ADMIN' && rows.some((athlete) => athlete.status === 'INACTIVE') && <details className="orphan-accounts-panel"><summary><span><span className="eyebrow">ACCESO DESACTIVADO</span><strong>Dados de baja ({rows.filter((athlete) => athlete.status === 'INACTIVE').length})</strong></span></summary><p>Las fichas y el historial se conservan. Puedes reactivar el acceso cuando vuelvan al gimnasio.</p><div className="orphan-account-list">{rows.filter((athlete) => athlete.status === 'INACTIVE').map((athlete) => <div key={athlete.id}><span><strong>{athleteDisplayName(athlete)}</strong><small>{athlete.user ? 'Cuenta asociada' : 'Sin cuenta asociada'}</small></span><button className="button button-secondary" onClick={() => reactivateAthlete(athlete)}>Reactivar acceso</button></div>)}</div></details>}
       {section === 'athletes' && user?.role === 'ADMIN' && orphanAthleteAccounts.length > 0 && <details className="orphan-accounts-panel"><summary><span><span className="eyebrow">CUENTAS SIN FICHA</span><strong>Recuperables ({orphanAthleteAccounts.length})</strong></span></summary><p>Estas cuentas aún existen, pero no tienen una ficha en el plantel. Recupera su perfil para volver a administrarlas.</p><div className="orphan-account-list">{orphanAthleteAccounts.map((account) => <div key={account.id}><span><strong>{account.display_name || `${account.first_name} ${account.last_name}`}</strong><small>{account.username} · {account.is_active ? 'Cuenta activa' : 'Cuenta bloqueada'}</small></span><button className="button button-secondary" onClick={() => restoreOrphanAthlete(account)}>Recuperar ficha</button></div>)}</div></details>}

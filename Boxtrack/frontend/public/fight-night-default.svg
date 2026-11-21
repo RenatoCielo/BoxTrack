@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title description">
+  <title id="title">Noche de combates BOXTRACK</title>
+  <desc id="description">Ilustración de un ring de boxeo listo para un próximo encuentro.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#292226"/>
+      <stop offset="1" stop-color="#101012"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#d6a94b" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#d6a94b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#background)"/>
+  <circle cx="850" cy="275" r="330" fill="url(#glow)"/>
+  <path d="M600 90v410M360 170l240 330 240-330M450 115l150 385 150-385" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width="2"/>
+  <path d="M0 560h1200M0 615h1200M0 670h1200" fill="none" stroke="#d6a94b" stroke-opacity=".58" stroke-width="8"/>
+  <path d="m215 710 385-190 385 190H215Z" fill="#171719" stroke="#d6a94b" stroke-opacity=".75" stroke-width="5"/>
+  <path d="M265 735h670" stroke="#b21f32" stroke-width="12"/>
+  <text x="72" y="130" fill="#d6a94b" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="8">BOXTRACK · COMUNIDAD</text>
+  <text x="72" y="220" fill="#fff" font-family="Georgia,serif" font-size="68">La próxima campana</text>
+  <text x="72" y="300" fill="#fff" font-family="Georgia,serif" font-size="68">suena entre gimnasios.</text>
+  <text x="76" y="370" fill="#fff" fill-opacity=".72" font-family="Arial,sans-serif" font-size="22" letter-spacing="3">ENCUENTROS · RESPETO · BOXEO</text>
+</svg>

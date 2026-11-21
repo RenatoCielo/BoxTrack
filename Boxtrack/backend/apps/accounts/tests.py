@@ -1,4 +1,8 @@
+from io import BytesIO
+
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
@@ -109,6 +113,21 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(athlete.first_name, 'Nombre nuevo')
         self.assertEqual(athlete.last_name, 'Apellido nuevo')
         self.assertEqual(athlete.phone, '+56987654321')
+
+    def test_user_can_upload_a_profile_photo(self):
+        image_buffer = BytesIO()
+        Image.new('RGB', (2, 2), color='red').save(image_buffer, format='PNG')
+        image = SimpleUploadedFile('profile.png', image_buffer.getvalue(), content_type='image/png')
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(
+            reverse('profile'),
+            {'profile_photo': image},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['profile_photo'].endswith('.png'))
 
     def test_profile_rejects_case_insensitive_duplicate_username(self):
         User.objects.create_user(

@@ -7,11 +7,32 @@ const categories = [
   ['GLOVES', 'Guantes'], ['WRAPS', 'Vendas'], ['HEADGEAR', 'Cabezal'], ['MOUTHGUARD', 'Bucal'],
   ['BOOTS', 'Botas'], ['CLOTHING', 'Vestimenta'], ['PROTECTIVE', 'Protección'], ['SUPPLEMENTS', 'Complementos'], ['OTHER', 'Otros']
 ];
+const categoryMarks = {
+  GLOVES: 'GLV', WRAPS: 'WRP', HEADGEAR: 'HDG', MOUTHGUARD: 'MTH',
+  BOOTS: 'BTS', CLOTHING: 'CLB', PROTECTIVE: 'PRT', SUPPLEMENTS: 'SPT', OTHER: 'GEAR',
+};
 const orderStatus = { PENDING: 'Pendiente', PAID: 'Pagado', READY: 'Listo para retirar', COMPLETED: 'Retirado', CANCELLED: 'Cancelado' };
 const priceFormat = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
 
+function ProductArtwork({ product, isAdmin, onEdit }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [product.image_url]);
+  return <div className="product-image">
+    {product.image_url && !imageFailed
+      ? <img src={product.image_url} alt={product.name} loading="lazy" onError={() => setImageFailed(true)} />
+      : <div className={`product-placeholder product-placeholder-${product.category.toLowerCase()}`} role="img" aria-label={`Imagen ilustrativa de ${product.name}`}>
+        <span className="product-placeholder-brand">BOXTRACK <i>FIGHT GEAR</i></span>
+        <span className="product-placeholder-mark"><Package size={30} /><b>{categoryMarks[product.category] || 'GEAR'}</b></span>
+        <strong>{product.name}</strong>
+        <small>{categories.find(([key]) => key === product.category)?.[1] || 'Equipamiento'}</small>
+      </div>}
+    {isAdmin && <button className="product-edit" onClick={onEdit} aria-label={`Editar ${product.name}`}><Pencil size={15} /></button>}
+  </div>;
+}
+
 function ProductDialog({ product, onClose, onSave, busy, error }) {
   const [values, setValues] = useState({ name: '', description: '', category: 'GLOVES', sku: '', price: '', stock: 0, image_url: '', is_active: true, ...product });
+  const [imageFailed, setImageFailed] = useState(false);
   const update = (event) => setValues({ ...values, [event.target.name]: event.target.value });
   return <div className="modal-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="form-dialog" role="dialog" aria-modal="true" aria-labelledby="product-form-title">
     <header className="dialog-heading"><div><p className="eyebrow">INVENTARIO DEL CLUB</p><h2 id="product-form-title">{product?.id ? 'Editar producto' : 'Agregar producto'}</h2></div><button className="icon-button dialog-close" onClick={onClose} aria-label="Cerrar"><X size={19} /></button></header>
@@ -21,7 +42,8 @@ function ProductDialog({ product, onClose, onSave, busy, error }) {
       <label className="field-label"><span>Precio (CLP) *</span><input className="control" type="number" min="1" step="1" name="price" required value={values.price} onChange={update} /></label>
       <label className="field-label"><span>Stock *</span><input className="control" type="number" min="0" step="1" name="stock" required value={values.stock} onChange={update} /></label>
       <label className="field-label"><span>SKU</span><input className="control" name="sku" value={values.sku} onChange={update} /></label>
-      <label className="field-label"><span>URL de imagen</span><input className="control" type="url" name="image_url" value={values.image_url} onChange={update} placeholder="https://..." /></label>
+      <label className="field-label"><span>URL de imagen</span><input className="control" type="text" name="image_url" value={values.image_url} onChange={(event) => { setImageFailed(false); update(event); }} placeholder="https://... o /product-artwork.svg" /><small>Usa un enlace público directo o el logo de tienda incluido.</small></label>
+      {values.image_url && <div className="product-form-image-preview">{imageFailed ? <span>No se pudo cargar esta imagen. Comprueba que el enlace sea público y directo.</span> : <img src={values.image_url} alt={`Vista previa de ${values.name || 'producto'}`} onError={() => setImageFailed(true)} />}</div>}
       <label className="field-label field-wide"><span>Descripción</span><textarea className="control" name="description" rows="3" value={values.description} onChange={update} /></label>
       <label className="checkbox-control"><input type="checkbox" checked={Boolean(values.is_active)} onChange={(event) => setValues({ ...values, is_active: event.target.checked })} /><span>Disponible para venta</span></label>
     </div>{error && <div className="notice notice-error">{error}</div>}<footer className="dialog-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button primary-btn" disabled={busy}>{busy ? 'Guardando...' : 'Guardar producto'}</button></footer></form>
@@ -213,7 +235,7 @@ export function StorePage() {
     {tab === 'catalog' && <>
       <div className="store-filters"><label className="search-field"><span className="sr-only">Buscar productos</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar equipamiento..." /></label><nav className="category-tabs" aria-label="Categorías de productos"><button className={category === 'ALL' ? 'active' : ''} onClick={() => setCategory('ALL')}>Todos</button>{categories.map(([value, label]) => <button key={value} className={category === value ? 'active' : ''} onClick={() => setCategory(value)}>{label}</button>)}</nav></div>
       <div className="store-grid">{visibleProducts.map((product) => <article className="product-card" key={product.id}>
-        <div className="product-image">{product.image_url ? <img src={product.image_url} alt={product.name} /> : <Package size={30} />}{isAdmin && <button className="product-edit" onClick={() => setProductEditor(product)} aria-label={`Editar ${product.name}`}><Pencil size={15} /></button>}</div>
+        <ProductArtwork product={product} isAdmin={isAdmin} onEdit={() => setProductEditor(product)} />
         <div className="product-copy"><span className="product-category">{categories.find(([key]) => key === product.category)?.[1] || product.category}</span><h2>{product.name}</h2><p>{product.description || 'Equipamiento disponible en el gimnasio.'}</p><div className="product-buy"><strong>{priceFormat.format(product.price)}</strong><span>{product.stock > 0 ? `${product.stock} disponibles` : 'Agotado'}</span></div><button className="button primary-btn product-add" disabled={product.stock < 1} onClick={() => addToCart(product)}><Plus size={15} /> Añadir al carrito</button></div>
       </article>)}{!visibleProducts.length && <div className="surface-panel empty-state">No encontramos productos con esos filtros.</div>}</div>
     </>}

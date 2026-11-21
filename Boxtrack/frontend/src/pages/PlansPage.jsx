@@ -6,7 +6,9 @@ const blankPlan = {
   name: '',
   description: '',
   price: '',
-  duration: '',
+  duration: 'Mensual',
+  classes_per_week: 4,
+  is_premium: false,
   is_active: true,
   sort_order: 0
 };
@@ -56,6 +58,8 @@ export function PlansPage() {
       description: plan.description || '',
       price: plan.price,
       duration: plan.duration,
+      classes_per_week: plan.classes_per_week ?? '',
+      is_premium: Boolean(plan.is_premium),
       is_active: plan.is_active,
       sort_order: plan.sort_order
     });
@@ -125,6 +129,7 @@ export function PlansPage() {
                 <span className={`status-tag${plan.is_active ? '' : ' plan-inactive'}`}>{plan.is_active ? 'Activo' : 'Inactivo'}</span>
                 <h3>{plan.name}</h3>
                 <p>{plan.duration} · {formatCLP(plan.price)}</p>
+                <small>{plan.classes_per_week == null ? 'Reservas ilimitadas · Premium' : `${plan.classes_per_week} clases por semana`}</small>
                 {plan.description && <small>{plan.description}</small>}
               </div>
               <div className="plan-admin-actions">
@@ -143,7 +148,9 @@ export function PlansPage() {
               : <Tags size={18} />}
           </div>
           <label className="field-label"><span>Nombre</span><input className="control" required maxLength="120" value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} placeholder="Plan mensual" /></label>
-          <label className="field-label"><span>Tipo o duración</span><input className="control" required maxLength="80" value={values.duration} onChange={(event) => setValues({ ...values, duration: event.target.value })} placeholder="Mensual, anual, 2x1..." /></label>
+          <label className="field-label"><span>Duración del plan</span><select className="control" required value={values.duration} onChange={(event) => setValues({ ...values, duration: event.target.value })}>{['Por clase', 'Diario', 'Semanal', 'Mensual', 'Anual'].map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select></label>
+          <label className="field-label"><span>Clases por semana</span><input className="control" type="number" min="1" step="1" required={!values.is_premium} value={values.classes_per_week ?? ''} onChange={(event) => setValues({ ...values, classes_per_week: event.target.value === '' ? null : Number(event.target.value) })} placeholder={values.is_premium ? 'Ilimitadas' : 'Ej. 4'} /><small>{values.is_premium ? 'Un plan premium puede dejar este límite vacío.' : 'Todos los planes estándar deben tener un límite.'}</small></label>
+          <label className="checkbox-control"><input type="checkbox" checked={values.is_premium} onChange={(event) => setValues({ ...values, is_premium: event.target.checked, classes_per_week: !event.target.checked && values.classes_per_week == null ? 4 : values.classes_per_week })} /> Plan premium (puede permitir clases ilimitadas)</label>
           <label className="field-label"><span>Precio en CLP</span><input className="control" type="number" min="0" step="1" required value={values.price} onChange={(event) => setValues({ ...values, price: event.target.value })} /></label>
           <label className="field-label"><span>Qué incluye</span><textarea className="control" rows="4" value={values.description} onChange={(event) => setValues({ ...values, description: event.target.value })} /></label>
           <label className="field-label"><span>Orden de publicación</span><input className="control" type="number" min="0" step="1" value={values.sort_order} onChange={(event) => setValues({ ...values, sort_order: Number(event.target.value) })} /></label>

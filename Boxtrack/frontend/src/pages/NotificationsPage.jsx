@@ -1,10 +1,36 @@
 import { useEffect, useState } from 'react';
 import { Bell, Check, CheckCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api, getErrorMessage, readCollection } from '../services/api';
 
-const typeNames = { INFO: 'General', TRAINING: 'Clases', EVALUATION: 'Evaluaciones', COMPETITION: 'Competencias', ALERT: 'Alertas' };
+const typeNames = { INFO: 'General', TRAINING: 'Clases', EVALUATION: 'Evaluaciones', COMPETITION: 'Competencias', ALERT: 'Avisos' };
+const fallbackDestinations = {
+  TRAINING: '/trainings',
+  EVALUATION: '/trainings',
+  COMPETITION: '/fights',
+  ALERT: '/trainings',
+  INFO: '/dashboard',
+};
+const deprecatedDestinations = {
+  '/alerts': '/trainings',
+  '/attendance': '/trainings',
+  '/competitors': '/athletes?profile=COMPETITORS',
+  '/reports': '/dashboard',
+  '/fight-agreements': '/fights?tab=agreements',
+};
+
+function notificationDestination(item, currentPath) {
+  const fallback = fallbackDestinations[item.notification_type] || '/dashboard';
+  const explicit = item.action_url?.startsWith('/') && !item.action_url.startsWith('//')
+    ? item.action_url
+    : fallback;
+  const path = explicit.split('?')[0];
+  const destination = deprecatedDestinations[path] || explicit;
+  return destination.split('?')[0] === currentPath ? fallback : destination;
+}
 
 export function NotificationsPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -22,13 +48,20 @@ export function NotificationsPage() {
     try {
       await api.patch(`/notifications/${item.id}/`, { is_read: true });
       setItems((current) => current.map((notification) => notification.id === item.id ? { ...notification, is_read: true } : notification));
+      window.dispatchEvent(new Event('boxtrack:notifications-changed'));
     } catch (requestError) { setError(getErrorMessage(requestError)); }
+  };
+
+  const openNotification = async (item) => {
+    if (!item.is_read) await markRead(item);
+    navigate(notificationDestination(item, window.location.pathname));
   };
 
   const markAllRead = async () => {
     try {
       await Promise.all(items.filter((item) => !item.is_read).map((item) => api.patch(`/notifications/${item.id}/`, { is_read: true })));
       setItems((current) => current.map((item) => ({ ...item, is_read: true })));
+      window.dispatchEvent(new Event('boxtrack:notifications-changed'));
     } catch (requestError) { setError(getErrorMessage(requestError)); }
   };
 
@@ -38,7 +71,7 @@ export function NotificationsPage() {
     {error && <div className="notice notice-error">{error}</div>}
     <div className="notification-list">{loading ? <div className="empty-state">Cargando notificaciones...</div> : items.length ? items.map((item) => <article className={`notification-row ${item.is_read ? '' : 'unread'}`} key={item.id}>
       <div className="notification-symbol"><Bell size={17} /></div>
-      <div className="notification-copy"><div className="notification-meta"><span>{typeNames[item.notification_type] || item.notification_type}</span><time>{new Date(item.created_at).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</time></div><h2>{item.title}</h2><p>{item.message}</p></div>
+      <div className="notification-copy"><div className="notification-meta"><span>{typeNames[item.notification_type] || item.notification_type}</span><time>{new Date(item.created_at).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</time></div><button className="notification-open" onClick={() => openNotification(item)}><h2>{item.title}</h2><p>{item.message}</p><small>Ver sección relacionada</small></button></div>
       {!item.is_read && <button className="icon-button table-action" title="Marcar como leída" aria-label="Marcar como leída" onClick={() => markRead(item)}><Check size={16} /></button>}
     </article>) : <div className="surface-panel empty-state">No tienes notificaciones por ahora.</div>}</div>
   </section>;
