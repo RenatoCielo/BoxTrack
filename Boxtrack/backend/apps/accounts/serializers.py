@@ -22,7 +22,7 @@ class ClubSerializer(serializers.ModelSerializer):
             'id', 'name', 'legal_rut', 'legal_representative_name',
             'legal_representative_rut', 'disciplines', 'verification_status',
             'verification_note', 'description', 'address', 'phone', 'email',
-            'website', 'is_active'
+            'website', 'logo', 'brand_primary', 'brand_accent', 'brand_surface', 'is_active'
         ]
 
 
@@ -32,13 +32,14 @@ class UserSerializer(serializers.ModelSerializer):
     is_superuser = serializers.BooleanField(read_only=True)
     display_name = serializers.CharField(read_only=True)
     phone = serializers.SerializerMethodField()
+    profile_photo = serializers.ImageField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'first_name', 'last_name', 'nickname',
             'use_nickname', 'display_name', 'phone', 'role', 'club', 'is_active',
-            'must_change_password', 'is_superuser'
+            'must_change_password', 'is_superuser', 'profile_photo'
         ]
         read_only_fields = fields
 
@@ -64,6 +65,7 @@ class ProfileSerializer(UserSerializer):
     nickname = serializers.CharField(max_length=50, required=False, allow_blank=True)
     use_nickname = serializers.BooleanField(required=False)
     share_phone = serializers.BooleanField(required=False)
+    profile_photo = serializers.ImageField(required=False, allow_null=True)
 
     class Meta(UserSerializer.Meta):
         fields = [*UserSerializer.Meta.fields, 'share_phone']
@@ -86,6 +88,11 @@ class ProfileSerializer(UserSerializer):
 
     def validate_nickname(self, value):
         return value.strip()
+
+    def validate_profile_photo(self, value):
+        if value and value.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError('La foto no puede superar los 5 MB.')
+        return value
 
     def validate_phone(self, value):
         normalized = re.sub(r'[\s().-]', '', value)

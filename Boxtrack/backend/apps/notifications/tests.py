@@ -15,7 +15,14 @@ class NotificationTests(APITestCase):
         role = Role.objects.create(name='ATHLETE', description='Deportista')
         self.user = User.objects.create_user(username='notification-user', password='Password123!', club=self.club, role=role)
         self.other_user = User.objects.create_user(username='other-notification-user', password='Password123!', club=self.club, role=role)
-        self.notice = Notification.objects.create(club=self.club, user=self.user, title='Cupo reservado', message='Listo', notification_type='TRAINING')
+        self.notice = Notification.objects.create(
+            club=self.club,
+            user=self.user,
+            title='Cupo reservado',
+            message='Listo',
+            notification_type='TRAINING',
+            action_url='/trainings',
+        )
         self.other_notice = Notification.objects.create(club=self.club, user=self.other_user, title='Privada', message='Oculta')
         self.client.force_authenticate(user=self.user)
 
@@ -23,12 +30,20 @@ class NotificationTests(APITestCase):
         response = self.client.get(reverse('notification-list'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row['id'] for row in response.data['results']], [self.notice.pk])
+        self.assertEqual(response.data['results'][0]['action_url'], '/trainings')
 
         update_response = self.client.patch(reverse('notification-detail', kwargs={'pk': self.notice.pk}), {'is_read': True}, format='json')
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
         self.assertTrue(update_response.data['is_read'])
+        self.assertEqual(self.client.get(reverse('notification-unread-count')).data, {'count': 0})
 
     def test_user_cannot_read_another_users_notification(self):
         response = self.client.get(reverse('notification-detail', kwargs={'pk': self.other_notice.pk}))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unread_count_only_includes_current_users_notifications(self):
+        response = self.client.get(reverse('notification-unread-count'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {'count': 1})

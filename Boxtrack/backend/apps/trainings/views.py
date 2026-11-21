@@ -1,17 +1,72 @@
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
+from django.utils import timezone
+from datetime import date, timedelta
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.athletes.models import Athlete
+from apps.clubs.models import PlanMembership
 from apps.common.permissions import ClubRolePermission, scope_to_assigned_athletes, user_role
 from apps.notifications.models import Notification
-from apps.trainings.models import Training
+from apps.trainings.models import Training, WeeklyTrainingSchedule
 from apps.trainings.models import TrainingReservation
-from apps.trainings.serializers import TrainingReservationSerializer, TrainingSerializer
+from apps.trainings.quotas import weekly_quota_stats
+from apps.trainings.serializers import (
+    TrainingReservationSerializer,
+    TrainingSerializer,
+    WeeklyTrainingScheduleSerializer,
+)
+
+
+def ensure_upcoming_weekly_trainings(club_id, from_date=None):
+    if not club_id:
+        return
+    today = from_date or timezone.localdate()
+    last_day = today + timedelta(days=83)
+    schedules = WeeklyTrainingSchedule.objects.filter(
+        club_id=club_id,
+        is_active=True,
+        starts_on__lte=last_day,
+    ).filter(Q(ends_on__isnull=True) | Q(ends_on__gte=today)).select_related('trainer', 'group')
+    for schedule in schedules:
+        first_day = max(today, schedule.starts_on)
+        final_day = min(last_day, schedule.ends_on) if schedule.ends_on else last_day
+        matching_dates = [
+            first_day + timedelta(days=offset)
+            for offset in range((final_day - first_day).days + 1)
+            if (first_day + timedelta(days=offset)).weekday() in schedule.weekdays
+        ]
+        existing_dates = set(
+            Training.objects.filter(
+                weekly_schedule=schedule,
+                scheduled_date__in=matching_dates,
+            ).values_list('scheduled_date', flat=True)
+        )
+        Training.objects.bulk_create(
+            [
+                Training(
+                    club_id=club_id,
+                    title=schedule.title,
+                    description=schedule.description,
+                    activity_type=schedule.activity_type,
+                    trainer=schedule.trainer,
+                    group=schedule.group,
+                    scheduled_date=scheduled_date,
+                    start_time=schedule.start_time,
+                    duration_minutes=schedule.duration_minutes,
+                    capacity=schedule.capacity,
+                    weekly_schedule=schedule,
+                    objectives=schedule.objectives,
+                )
+                for scheduled_date in matching_dates
+                if scheduled_date not in existing_dates
+            ],
+            ignore_conflicts=True,
+        )
 
 
 class ClubTrainingPermission(ClubRolePermission):
@@ -48,6 +103,28 @@ class TrainingListCreateView(generics.ListCreateAPIView):
     serializer_class = TrainingSerializer
     permission_classes = [permissions.IsAuthenticated, ClubTrainingPermission]
 
+    def list(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            if user_role(request.user) == 'ATHLETE':
+                self.week_start = self._week_start_from_query(request.query_params.get('week_start'))
+                ensure_upcoming_weekly_trainings(request.user.club_id, self.week_start)
+            else:
+                ensure_upcoming_weekly_trainings(request.user.club_id)
+        return super().list(request, *args, **kwargs)
+
+    @staticmethod
+    def _week_start_from_query(value):
+        if not value:
+            today = timezone.localdate()
+            return today - timedelta(days=today.weekday())
+        try:
+            requested_date = date.fromisoformat(value)
+        except (TypeError, ValueError):
+            raise ValidationError({'week_start': 'Indica una fecha válida en formato YYYY-MM-DD.'})
+        if requested_date.weekday() != 0:
+            raise ValidationError({'week_start': 'La semana debe comenzar un lunes.'})
+        return requested_date
+
     def get_queryset(self):
         user = self.request.user
         queryset = Training.objects.select_related('club', 'trainer', 'group').annotate(
@@ -57,16 +134,78 @@ class TrainingListCreateView(generics.ListCreateAPIView):
             return queryset.all()
         queryset = queryset.filter(club_id=user.club_id)
         if user_role(user) == 'ATHLETE':
-            athlete = Athlete.objects.filter(user=user, club_id=user.club_id).only('group_id').first()
+            athlete = Athlete.objects.filter(user=user, club_id=user.club_id).only('id', 'group_id').first()
             if not athlete:
                 return queryset.none()
-            queryset = queryset.filter(Q(group__isnull=True) | Q(group_id=athlete.group_id))
+            week_start = getattr(self, 'week_start', self._week_start_from_query(None))
+            week_end = week_start + timedelta(days=7)
+            today = timezone.localdate()
+            membership = PlanMembership.objects.filter(
+                athlete=athlete,
+                status='ACTIVE',
+                starts_on__lte=min(today, week_end - timedelta(days=1)),
+                expires_on__gte=max(today, week_start),
+            ).first()
+            if not membership:
+                return queryset.none()
+            membership_start = max(week_start, membership.starts_on)
+            membership_end = min(week_end - timedelta(days=1), membership.expires_on)
+            own_reservation = TrainingReservation.objects.filter(
+                training_id=OuterRef('pk'),
+                athlete_id=athlete.id,
+                status='RESERVED',
+            ).values('id')[:1]
+            queryset = queryset.filter(
+                Q(group__isnull=True) | Q(group_id=athlete.group_id),
+                scheduled_date__gte=membership_start,
+                scheduled_date__lte=membership_end,
+            ).annotate(
+                own_reservation_id=Subquery(own_reservation)
+            )
         elif user_role(user) == 'TRAINER':
             queryset = queryset.filter(trainer_id=user.id)
         return queryset.order_by('scheduled_date', 'start_time', 'id')
 
     def perform_create(self, serializer):
         serializer.save(club=self.request.user.club)
+
+
+class WeeklyTrainingScheduleListCreateView(generics.ListCreateAPIView):
+    serializer_class = WeeklyTrainingScheduleSerializer
+    permission_classes = [permissions.IsAuthenticated, ClubTrainingPermission]
+
+    def get_queryset(self):
+        queryset = WeeklyTrainingSchedule.objects.select_related('club', 'trainer', 'group')
+        user = self.request.user
+        if user.is_superuser:
+            return queryset.all()
+        queryset = queryset.filter(club_id=user.club_id)
+        if user_role(user) == 'TRAINER':
+            queryset = queryset.filter(trainer_id=user.id)
+        return queryset
+
+    def perform_create(self, serializer):
+        schedule = serializer.save(club=self.request.user.club)
+        ensure_upcoming_weekly_trainings(schedule.club_id)
+
+
+class WeeklyTrainingScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = WeeklyTrainingScheduleSerializer
+    permission_classes = [permissions.IsAuthenticated, ClubTrainingPermission]
+
+    def get_queryset(self):
+        queryset = WeeklyTrainingSchedule.objects.select_related('club', 'trainer', 'group')
+        user = self.request.user
+        if user.is_superuser:
+            return queryset.all()
+        queryset = queryset.filter(club_id=user.club_id)
+        if user_role(user) == 'TRAINER':
+            queryset = queryset.filter(trainer_id=user.id)
+        return queryset
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
 
 
 class TrainingDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -117,6 +256,23 @@ class TrainingReservationListCreateView(APIView):
                 athlete = get_object_or_404(Athlete, user=request.user, club=training.club, status='ACTIVE')
                 if training.group_id is not None and training.group_id != athlete.group_id:
                     raise PermissionDenied('Esta clase corresponde a otro grupo de preparación.')
+                membership = PlanMembership.objects.select_for_update().filter(
+                    athlete=athlete,
+                    status='ACTIVE',
+                    starts_on__lte=min(timezone.localdate(), training.scheduled_date),
+                    expires_on__gte=max(timezone.localdate(), training.scheduled_date),
+                ).select_related('plan').first()
+                if not membership:
+                    raise PermissionDenied('Necesitas una membresía vigente en la fecha de esta clase.')
+                weekly_limit = membership.plan.classes_per_week
+                if weekly_limit is not None:
+                    week_start = training.scheduled_date - timedelta(days=training.scheduled_date.weekday())
+                    quota = weekly_quota_stats(athlete, week_start)
+                    if quota['used'] >= weekly_limit:
+                        return Response(
+                            {'detail': f'Tu plan permite hasta {weekly_limit} clases por semana. Marca una ausencia o cancela una reserva para liberar el cupo.'},
+                            status=status.HTTP_409_CONFLICT,
+                        )
             elif role_name in ('ADMIN', 'TRAINER') or request.user.is_superuser:
                 athlete_id = request.data.get('athlete')
                 if not athlete_id:
@@ -145,6 +301,7 @@ class TrainingReservationListCreateView(APIView):
                     title='Cupo reservado',
                     message=f'Tu cupo para {training.title} quedó confirmado.',
                     notification_type='TRAINING',
+                    action_url='/trainings',
                 )
 
         return Response(
@@ -180,5 +337,6 @@ class TrainingReservationCancelView(APIView):
                     title='Reserva cancelada',
                     message=f'Se canceló tu cupo para {reservation.training.title}.',
                     notification_type='TRAINING',
+                    action_url='/trainings',
                 )
         return Response(TrainingReservationSerializer(reservation).data)

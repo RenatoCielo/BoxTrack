@@ -225,6 +225,7 @@ class OrderListCreateView(APIView):
                 title='Pedido listo para enviar comprobante',
                 message=f'Envía el comprobante de transferencia del pedido #{order.pk}. El gimnasio lo revisará y te notificará el resultado.',
                 notification_type='ALERT',
+                action_url='/store',
             )
 
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
@@ -332,6 +333,7 @@ class OrderPaymentProofUploadView(APIView):
             title='Comprobante en revisión',
             message=f'Recibimos el comprobante del pedido #{order.pk}. Te notificaremos cuando el gimnasio lo revise.',
             notification_type='ALERT',
+            action_url='/store',
         )
         admin_users = User.objects.filter(club=order.club, role__name='ADMIN', is_active=True)
         for admin_user in admin_users:
@@ -341,6 +343,7 @@ class OrderPaymentProofUploadView(APIView):
                 title='Comprobante pendiente de revisión',
                 message=f'El pedido #{order.pk} de {order.user.get_full_name() or order.user.username} requiere validar una transferencia.',
                 notification_type='ALERT',
+                action_url='/store',
             )
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
@@ -404,6 +407,7 @@ class OrderPaymentProofReviewView(APIView):
                 title=notification_title,
                 message=notification_message,
                 notification_type='ALERT',
+                action_url='/store',
             )
         return Response(OrderSerializer(order).data)
 

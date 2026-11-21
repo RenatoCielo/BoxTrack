@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Bell, CalendarDays, KeyRound, LayoutDashboard, LogOut, Menu, Settings, X,
-  Shield, ShieldCheck, Swords, Users, ClipboardCheck, Trophy, ShoppingBag, TriangleAlert,
-  FileSpreadsheet, Scale
+  Shield, ShieldCheck, Swords, Users, ClipboardCheck, ShoppingBag,
+  ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { getErrorMessage } from '../services/api';
+import { api, getErrorMessage } from '../services/api';
+import { brandColorOnLightSurface, brandSurfaceWithReadableText } from '../utils/brandColors';
 
 function PasswordDialog({ required, onClose }) {
   const { changePassword } = useAuth();
@@ -48,28 +49,24 @@ function PasswordDialog({ required, onClose }) {
 const navigation = [
   { to: '/dashboard', label: 'Resumen', icon: LayoutDashboard, roles: ['ADMIN', 'TRAINER'], end: true },
   { to: '/global-admin', label: 'Clubes pendientes', icon: ShieldCheck, roles: ['ADMIN'] },
-  { to: '/athletes', label: 'Deportistas', icon: Users, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/competitors', label: 'Boxeadores competidores', icon: Trophy, roles: ['ADMIN', 'TRAINER'] },
+  { to: '/athletes', label: 'Mis deportistas', icon: Users, roles: ['ADMIN', 'TRAINER'] },
   { to: '/trainers', label: 'Entrenadores', icon: Shield, roles: ['ADMIN'] },
-  { to: '/groups', label: 'Grupos', icon: Users, roles: ['ADMIN'] },
   { to: '/trainings', label: 'Clases y cupos', icon: CalendarDays, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
-  { to: '/attendance', label: 'Asistencia', icon: ClipboardCheck, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/evaluations', label: 'Evaluaciones', icon: ClipboardCheck, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/weight', label: 'Control de peso', icon: Scale, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/fights', label: 'Historial de combates', icon: Swords, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/alerts', label: 'Alertas', icon: TriangleAlert, roles: ['ADMIN', 'TRAINER'] },
-  { to: '/reports', label: 'Reportes', icon: FileSpreadsheet, roles: ['ADMIN'] },
+  { to: '/fights', label: 'Combates', icon: Swords, roles: ['ADMIN', 'TRAINER'] },
   { to: '/notifications', label: 'Notificaciones', icon: Bell, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/store', label: 'Tienda', icon: ShoppingBag, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] },
   { to: '/plans', label: 'Planes del gimnasio', icon: ClipboardCheck, roles: ['ADMIN'] },
+  { to: '/memberships', label: 'Solicitudes de ingreso', icon: ClipboardList, roles: ['ADMIN'] },
   { to: '/settings', label: 'Configuración', icon: Settings, roles: ['ADMIN', 'TRAINER', 'ATHLETE'] }
 ];
 
 const visibleNavigation = (user) => {
-  const role = user?.is_superuser ? 'ADMIN' : user?.role;
+  if (user?.is_superuser) return navigation.filter((item) => item.to === '/global-admin');
+  const role = user?.role;
   return navigation.filter((item) => {
-    if (item.to === '/global-admin') return Boolean(user?.is_superuser);
+    if (item.to === '/global-admin') return false;
     if (item.to === '/plans') return user?.role === 'ADMIN' && Boolean(user?.club);
+    if (item.to === '/memberships') return user?.role === 'ADMIN' && Boolean(user?.club);
     return item.roles.includes(role);
   });
 };
@@ -78,12 +75,49 @@ export function WorkspaceLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationCountError, setNotificationCountError] = useState('');
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(Boolean(user?.must_change_password));
   const fullName = user?.display_name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username;
+  const avatar = user?.profile_photo
+    ? <img src={user.profile_photo} alt="" />
+    : (fullName || 'B').slice(0, 1).toUpperCase();
+  const clubBrand = user?.club ? {
+    '--forest': brandColorOnLightSurface(user.club.brand_primary, '#B21F32'),
+    '--boxing-red': brandColorOnLightSurface(user.club.brand_primary, '#B21F32'),
+    '--gold': brandColorOnLightSurface(user.club.brand_accent, '#A67825'),
+    '--forest-dark': brandSurfaceWithReadableText(user.club.brand_surface, '#151518'),
+  } : undefined;
 
   useEffect(() => {
     if (user?.must_change_password) setPasswordDialogOpen(true);
   }, [user?.must_change_password]);
+
+  useEffect(() => {
+    if (!user || user.is_superuser) {
+      setUnreadCount(0);
+      return undefined;
+    }
+    let active = true;
+    const refreshCount = async () => {
+      try {
+        const { data } = await api.get('/notifications/unread-count/');
+        if (active) {
+          setUnreadCount(data.count);
+          setNotificationCountError('');
+        }
+      } catch (requestError) {
+        if (active) setNotificationCountError(getErrorMessage(requestError));
+      }
+    };
+    const refreshOnChange = () => { refreshCount(); };
+    refreshCount();
+    window.addEventListener('boxtrack:notifications-changed', refreshOnChange);
+    return () => {
+      active = false;
+      window.removeEventListener('boxtrack:notifications-changed', refreshOnChange);
+    };
+  }, [user?.id, user?.is_superuser]);
 
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const signOut = () => {
@@ -95,32 +129,36 @@ export function WorkspaceLayout() {
     logout();
     navigate('/login', { replace: true });
   };
-  const tabLabels = { '/dashboard': 'Resumen', '/athletes': 'Alumnos', '/trainings': 'Clases', '/store': 'Tienda', '/notifications': 'Avisos' };
-  const mobileTabs = ['/dashboard', '/athletes', '/trainings', '/store', '/notifications']
+  const tabLabels = { '/dashboard': 'Resumen', '/athletes': 'Plantel', '/trainings': 'Clases', '/store': 'Tienda', '/notifications': 'Avisos', '/global-admin': 'Clubes' };
+  const mobilePaths = user?.is_superuser
+    ? ['/global-admin']
+    : ['/dashboard', '/athletes', '/trainings', '/notifications', '/store'];
+  const mobileTabs = mobilePaths
     .map((path) => visibleNavigation(user).find(({ to }) => to === path))
     .filter(Boolean)
     .slice(0, 4);
 
   return (
-    <div className="workspace-shell">
+    <div className="workspace-shell" style={clubBrand}>
       <aside className="workspace-sidebar">
         <div className="workspace-brand">
-          <span className="brand-mark">BX</span>
-          <div><strong>BOXTRACK</strong><small>CLUB MANAGEMENT</small></div>
+          {user?.club?.logo ? <img className="brand-mark brand-logo" src={user.club.logo} alt="" /> : <span className="brand-mark">BX</span>}
+          <div><strong>BOXTRACK</strong><small>{user?.is_superuser ? 'ADMINISTRACIÓN GLOBAL' : 'CLUB MANAGEMENT'}</small></div>
         </div>
-        <div className="club-badge"><span className="club-dot" />{user?.club?.name || 'Mi club'}</div>
+        <div className="club-badge"><span className="club-dot" />{user?.is_superuser ? 'Revisión de clubes' : user?.club?.name || 'Mi club'}</div>
         <nav className="workspace-nav" aria-label="Navegación principal">
           <span className="nav-caption">GESTIÓN</span>
           {visibleNavigation(user).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-              <Icon size={17} strokeWidth={1.8} /><span>{label}</span>
+              <Icon size={17} strokeWidth={1.8} /><span>{label}</span>{to === '/notifications' && unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
             </NavLink>
           ))}
         </nav>
         <div className="sidebar-bottom">
+          {notificationCountError && <small className="notification-count-error" role="status" title={notificationCountError}>No se pudo actualizar el contador de avisos.</small>}
           <div className="user-chip">
-            <span className="user-avatar">{(fullName || 'B').slice(0, 1).toUpperCase()}</span>
-            <div className="user-meta"><strong>{fullName}</strong><small>{user?.role || 'Usuario'}</small></div>
+            <span className="user-avatar">{avatar}</span>
+            <div className="user-meta"><strong>{fullName}</strong><small>{user?.is_superuser ? 'Superadministrador' : user?.role || 'Usuario'}</small></div>
             <button className="icon-button logout-button" onClick={() => setPasswordDialogOpen(true)} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={17} /></button>
             <button className="icon-button logout-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={17} /></button>
           </div>
@@ -132,28 +170,28 @@ export function WorkspaceLayout() {
             {mobileMenuOpen ? <X size={21} /> : <Menu size={21} />}
           </button>
           <div className="mobile-brand"><span className="brand-mark">BX</span><strong>BOXTRACK</strong></div>
-          <div className="topbar-club">{user?.club?.name || 'Mi club'}</div>
-          <NavLink to="/settings" className={({ isActive }) => `icon-button settings-shortcut${isActive ? ' active' : ''}`} aria-label="Abrir configuración" title="Configuración">
+          <div className="topbar-club">{user?.is_superuser ? 'Administración global' : user?.club?.name || 'Mi club'}</div>
+          {!user?.is_superuser && <NavLink to="/settings" className={({ isActive }) => `icon-button settings-shortcut${isActive ? ' active' : ''}`} aria-label="Abrir configuración" title="Configuración">
             <Settings size={20} />
-          </NavLink>
+          </NavLink>}
         </header>
         <main className="workspace-content"><Outlet /></main>
       </div>
       {mobileMenuOpen && <div className="mobile-nav-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) setMobileMenuOpen(false); }}>
         <nav className="mobile-nav-drawer" aria-label="Navegación móvil">
-          <div className="mobile-nav-heading"><span>{user?.club?.name || 'Mi club'}</span><button className="icon-button mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="Cerrar navegación"><X size={20} /></button></div>
+          <div className="mobile-nav-heading"><span>{user?.is_superuser ? 'Administración global' : user?.club?.name || 'Mi club'}</span><button className="icon-button mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="Cerrar navegación"><X size={20} /></button></div>
           <div className="mobile-nav-links">{visibleNavigation(user).map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setMobileMenuOpen(false)} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-              <Icon size={18} strokeWidth={1.8} /><span>{label}</span>
+              <Icon size={18} strokeWidth={1.8} /><span>{label}</span>{to === '/notifications' && unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
             </NavLink>
           ))}</div>
-          <div className="mobile-nav-account"><span className="user-avatar">{(fullName || 'B').slice(0, 1).toUpperCase()}</span><div className="user-meta"><strong>{fullName}</strong><small>{user?.role || 'Usuario'}</small></div><button className="icon-button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={18} /></button><button className="icon-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
+          <div className="mobile-nav-account"><span className="user-avatar">{avatar}</span><div className="user-meta"><strong>{fullName}</strong><small>{user?.is_superuser ? 'Superadministrador' : user?.role || 'Usuario'}</small></div><button className="icon-button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }} title="Cambiar contraseña" aria-label="Cambiar contraseña"><KeyRound size={18} /></button><button className="icon-button" onClick={signOut} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18} /></button></div>
         </nav>
       </div>}
       <nav className="bottom-tabbar" aria-label="Navegación rápida">
         {mobileTabs.map(({ to, icon: Icon, end }) => (
           <NavLink key={to} to={to} end={end} className={({ isActive }) => `bottom-tab${isActive ? ' active' : ''}`}>
-            <Icon size={22} strokeWidth={1.9} /><span>{tabLabels[to]}</span>
+            <span className="bottom-tab-icon"><Icon size={22} strokeWidth={1.9} />{to === '/notifications' && unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}</span><span>{tabLabels[to]}</span>
           </NavLink>
         ))}
         <button type="button" className={`bottom-tab${mobileMenuOpen ? ' active' : ''}`} onClick={() => setMobileMenuOpen((open) => !open)} aria-expanded={mobileMenuOpen}>

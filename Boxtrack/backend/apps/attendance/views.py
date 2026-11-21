@@ -1,11 +1,62 @@
+from datetime import timedelta
+
+from django.db import transaction
 from rest_framework import generics, permissions
+from rest_framework.exceptions import ValidationError
 
 from apps.athletes.models import Athlete
 from apps.attendance.models import Attendance
 from apps.attendance.serializers import AttendanceSerializer
+from apps.clubs.models import PlanMembership
 from apps.common.permissions import StaffWritePermission
 from apps.common.permissions import scope_to_assigned_athletes
 from apps.trainings.models import Training
+from apps.trainings.quotas import ATTENDANCE_COUNTS_TOWARD_QUOTA, weekly_quota_stats
+
+
+def save_attendance_with_quota(serializer):
+    athlete = serializer.validated_data.get('athlete', getattr(serializer.instance, 'athlete', None))
+    training = serializer.validated_data.get('training', getattr(serializer.instance, 'training', None))
+    status_value = serializer.validated_data.get(
+        'status',
+        getattr(serializer.instance, 'status', 'PRESENT'),
+    )
+    with transaction.atomic():
+        membership = PlanMembership.objects.select_for_update().filter(
+            athlete=athlete,
+            status='ACTIVE',
+            starts_on__lte=training.scheduled_date,
+            expires_on__gte=training.scheduled_date,
+        ).select_related('plan').first()
+        if membership and status_value in ATTENDANCE_COUNTS_TOWARD_QUOTA:
+            weekly_limit = membership.plan.classes_per_week
+            if weekly_limit is not None:
+                week_start = training.scheduled_date - timedelta(days=training.scheduled_date.weekday())
+                quota = weekly_quota_stats(athlete, week_start)
+                instance = serializer.instance
+                same_attendance = (
+                    instance is not None
+                    and instance.athlete_id == athlete.id
+                    and instance.training_id == training.id
+                )
+                previous_status = instance.status if same_attendance else None
+                has_active_reservation = training.reservations.filter(
+                    athlete=athlete,
+                    status='RESERVED',
+                ).exists()
+                already_counted = (
+                    previous_status in ATTENDANCE_COUNTS_TOWARD_QUOTA
+                    or (
+                        has_active_reservation
+                        and previous_status not in ('ABSENT', 'JUSTIFIED')
+                    )
+                )
+                projected_usage = quota['used'] + (0 if already_counted else 1)
+                if projected_usage > weekly_limit:
+                    raise ValidationError({
+                        'status': f'El plan de {athlete} permite {weekly_limit} clases por semana y ya alcanzó ese límite.'
+                    })
+        serializer.save(club=athlete.club)
 
 
 class AttendanceListCreateView(generics.ListCreateAPIView):
@@ -30,13 +81,7 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        athlete = serializer.validated_data['athlete']
-        training = serializer.validated_data['training']
-
-        if athlete.club_id != self.request.user.club_id or training.club_id != self.request.user.club_id:
-            self.permission_denied(self.request, message='No tienes permisos para registrar esta asistencia.')
-
-        serializer.save(club=self.request.user.club)
+        save_attendance_with_quota(serializer)
 
 
 class AttendanceDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -49,3 +94,6 @@ class AttendanceDetailView(generics.RetrieveUpdateDestroyAPIView):
         if not user.is_superuser:
             queryset = queryset.filter(club_id=user.club_id)
         return scope_to_assigned_athletes(queryset, user)
+
+    def perform_update(self, serializer):
+        save_attendance_with_quota(serializer)

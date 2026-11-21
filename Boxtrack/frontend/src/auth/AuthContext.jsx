@@ -72,7 +72,10 @@ export function AuthProvider({ children }) {
   };
 
   const updateProfile = async (values) => {
-    const { data } = await api.patch('/auth/profile/', values);
+    const config = values instanceof FormData
+      ? { headers: { 'Content-Type': 'multipart/form-data' } }
+      : undefined;
+    const { data } = await api.patch('/auth/profile/', values, config);
     setUser(data);
     localStorage.setItem('boxtrack.user', JSON.stringify(data));
     return data;

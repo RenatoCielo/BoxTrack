@@ -23,6 +23,7 @@ class Athlete(SpanishSchemaModel):
     user = models.OneToOneField('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='athlete_profile')
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
+    gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, default='')
     photo = models.ImageField(upload_to='athletes/photos/', blank=True, null=True)
     birth_date = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True)
