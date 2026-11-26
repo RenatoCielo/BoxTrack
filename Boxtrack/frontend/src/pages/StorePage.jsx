@@ -58,12 +58,66 @@ function TransferInstructionsDialog({ value, onClose, onSave, busy, error }) {
   </section></div>;
 }
 
+function WebpaySimulation({ order, result, busy, error, onDecision, onClose }) {
+  const [card, setCard] = useState({ number: '', holder: '', expiry: '', cvv: '' });
+  const total = priceFormat.format(order.total);
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    onDecision(event.nativeEvent.submitter.value);
+  };
+
+  const updateCard = (event) => {
+    const { name, value } = event.target;
+    if (name === 'number') {
+      setCard((current) => ({ ...current, number: value.replace(/\D/g, '').slice(0, 19) }));
+    } else if (name === 'expiry') {
+      const digits = value.replace(/\D/g, '').slice(0, 4);
+      setCard((current) => ({ ...current, expiry: digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits }));
+    } else if (name === 'cvv') {
+      setCard((current) => ({ ...current, cvv: value.replace(/\D/g, '').slice(0, 4) }));
+    } else {
+      setCard((current) => ({ ...current, [name]: value }));
+    }
+  };
+
+  return <section className="page-stack webpay-page">
+    <header className="page-heading"><div><p className="eyebrow">ENTORNO DE PRUEBA</p><h1>Pago con Webpay</h1><p className="page-description">Simulación segura: no se realizará ningún cobro real.</p></div>{!result && <button className="button button-secondary" onClick={onClose}>Volver a mis pedidos</button>}</header>
+    <div className="webpay-window surface-panel">
+      <header className="webpay-header"><span className="webpay-logo">webpay <b>plus</b></span><span>Transacción segura · Simulación</span></header>
+      {result ? <div className={`webpay-result ${result.status === 'PAID' ? 'is-approved' : 'is-rejected'}`}>
+        <div className="webpay-result-icon">{result.status === 'PAID' ? <Check size={30} /> : <X size={30} />}</div>
+        <p className="eyebrow">RESULTADO DE LA TRANSACCIÓN</p>
+        <h2>{result.status === 'PAID' ? 'Pago aprobado' : 'Pago rechazado'}</h2>
+        <p>{result.status === 'PAID' ? 'Tu pago de prueba fue aprobado. El pedido quedó registrado como pagado.' : 'La respuesta de prueba fue rechazada. No se realizó ningún cobro y el stock quedó liberado.'}</p>
+        <dl><div><dt>Pedido</dt><dd>#{result.id}</dd></div><div><dt>Monto</dt><dd>{priceFormat.format(result.total)}</dd></div><div><dt>Referencia</dt><dd>{result.payment_reference}</dd></div></dl>
+        <button className="button primary-btn" onClick={onClose}>Volver a mis pedidos</button>
+      </div> : <div className="webpay-content">
+        <form className="webpay-form" onSubmit={handleSubmit}>
+          <div className="webpay-form-heading"><div><p className="eyebrow">DATOS DE PAGO DE PRUEBA</p><h2>Tarjeta de crédito o débito</h2></div><span className="webpay-card-mark">VISA</span></div>
+          <label className="field-label"><span>Número de tarjeta</span><input className="control" name="number" inputMode="numeric" autoComplete="off" placeholder="1234 5678 9012 3456" value={card.number} onChange={updateCard} required minLength="13" maxLength="19" pattern="[0-9]{13,19}" title="Ingresa entre 13 y 19 dígitos, sin espacios." /></label>
+          <label className="field-label"><span>Nombre del titular</span><input className="control" name="holder" autoComplete="off" placeholder="Nombre como aparece en la tarjeta" value={card.holder} onChange={updateCard} required /></label>
+          <div className="webpay-card-fields">
+            <label className="field-label"><span>Vencimiento</span><input className="control" name="expiry" inputMode="numeric" autoComplete="off" placeholder="MM/AA" value={card.expiry} onChange={updateCard} required pattern="(0[1-9]|1[0-2])/[0-9]{2}" title="Usa el formato MM/AA." /></label>
+            <label className="field-label"><span>CVV</span><input className="control" name="cvv" inputMode="numeric" autoComplete="off" placeholder="123" value={card.cvv} onChange={updateCard} required minLength="3" maxLength="4" pattern="[0-9]{3,4}" title="Ingresa 3 o 4 dígitos." /></label>
+          </div>
+          {error && <div className="notice notice-error">{error}</div>}
+          <div className="webpay-decisions"><button className="button primary-btn" name="decision" value="APPROVE" disabled={busy}>{busy ? 'Enviando respuesta...' : 'Aprobar pago de prueba'}</button><button className="button button-secondary" name="decision" value="REJECT" disabled={busy}>Rechazar pago de prueba</button></div>
+          <p className="webpay-privacy-note">La tarjeta se valida solo en este formulario. Sus datos no se envían ni se guardan.</p>
+        </form>
+        <aside className="webpay-summary"><p className="eyebrow">RESUMEN DE COMPRA</p><h2>Pedido #{order.id}</h2><p>Equipamiento de tu tienda BoxTrack</p><div><span>Total a pagar</span><strong>{total}</strong></div><small>Al ser una simulación, puedes elegir el resultado de la respuesta del pago.</small></aside>
+      </div>}
+    </div>
+  </section>;
+}
+
 export function StorePage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [onlinePaymentAvailable, setOnlinePaymentAvailable] = useState(false);
+  const [webpaySimulationAvailable, setWebpaySimulationAvailable] = useState(false);
   const [bankTransferInstructions, setBankTransferInstructions] = useState('');
   const [cart, setCart] = useState(() => {
     try { return JSON.parse(localStorage.getItem('boxtrack.cart') || '[]'); } catch { return []; }
@@ -76,6 +130,8 @@ export function StorePage() {
   const [proofFiles, setProofFiles] = useState({});
   const [busyProofOrder, setBusyProofOrder] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('RESERVE');
+  const [webpayOrder, setWebpayOrder] = useState(null);
+  const [webpayResult, setWebpayResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -91,8 +147,10 @@ export function StorePage() {
       setProducts(productRows);
       setOrders(orderRows);
       setOnlinePaymentAvailable(checkoutConfig.mercado_pago_available);
+      setWebpaySimulationAvailable(checkoutConfig.webpay_simulation_available);
       setBankTransferInstructions(checkoutConfig.bank_transfer_instructions || '');
       if (!checkoutConfig.mercado_pago_available && paymentMethod === 'MERCADO_PAGO') setPaymentMethod('RESERVE');
+      if (!checkoutConfig.webpay_simulation_available && paymentMethod === 'WEBPAY') setPaymentMethod('RESERVE');
     } catch (requestError) { setError(getErrorMessage(requestError)); }
   };
 
@@ -156,10 +214,26 @@ export function StorePage() {
       });
       setCart([]);
       await load();
+      if (paymentMethod === 'WEBPAY') {
+        setWebpayOrder(data);
+        setWebpayResult(null);
+        return;
+      }
       setTab('orders');
       if (data.checkout_url) window.location.assign(data.checkout_url);
       else if (paymentMethod === 'RESERVE') setNotice('Productos reservados para retiro en el gimnasio.');
       else setNotice('Pedido registrado. El gimnasio confirmará la transferencia antes del retiro.');
+    } catch (requestError) { setError(getErrorMessage(requestError)); }
+    finally { setBusy(false); }
+  };
+
+  const respondToWebpaySimulation = async (decision) => {
+    setBusy(true);
+    setError('');
+    try {
+      const { data } = await api.post(`/store/orders/${webpayOrder.id}/webpay-simulation/`, { decision });
+      setWebpayResult(data);
+      await load();
     } catch (requestError) { setError(getErrorMessage(requestError)); }
     finally { setBusy(false); }
   };
@@ -226,6 +300,22 @@ export function StorePage() {
     : orders;
   const pendingProofCount = orders.filter((order) => order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED').length;
 
+  if (webpayOrder) {
+    return <WebpaySimulation
+      order={webpayOrder}
+      result={webpayResult}
+      busy={busy}
+      error={error}
+      onDecision={respondToWebpaySimulation}
+      onClose={() => {
+        setWebpayOrder(null);
+        setWebpayResult(null);
+        setError('');
+        setTab('orders');
+      }}
+    />;
+  }
+
   return <section className="page-stack">
     <header className="page-heading"><div><p className="eyebrow">EQUIPAMIENTO Y COMPLEMENTOS</p><h1>Tienda del gimnasio</h1><p className="page-description">Productos, stock y pedidos de tu club.</p></div>{isAdmin && <div className="heading-actions"><button className="button button-secondary" onClick={() => setTransferEditorOpen(true)}>Datos de transferencia</button><button className="button primary-btn" onClick={() => setProductEditor({})}><Plus size={16} /> Agregar producto</button></div>}</header>
     <div className="store-tabs"><button className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><ShoppingBag size={16} /> Catálogo</button><button className={tab === 'cart' ? 'active' : ''} onClick={() => setTab('cart')}><ShoppingCart size={16} /> Carrito <span>{cartCount}</span></button><button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}><Package size={16} /> Pedidos</button>{isAdmin && <button className={tab === 'proofs' ? 'active' : ''} onClick={() => setTab('proofs')}><FileCheck2 size={16} /> Comprobantes <span>{pendingProofCount}</span></button>}</div>
@@ -241,10 +331,10 @@ export function StorePage() {
     </>}
 
     {tab === 'cart' && <div className="checkout-layout"><section className="cart-lines surface-panel"><div className="section-heading"><div><p className="eyebrow">TU SELECCIÓN</p><h2>Carrito</h2></div></div>{cart.length ? cart.map((item) => <div className="cart-line" key={item.id}><div className="cart-product-mark"><Package size={18} /></div><div className="cart-product-name"><strong>{item.name}</strong><span>{priceFormat.format(item.price)} c/u</span></div><div className="quantity-stepper"><button onClick={() => changeQuantity(item.id, -1)} aria-label="Quitar una unidad"><Minus size={14} /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.id, 1)} disabled={item.quantity >= item.stock} aria-label="Agregar una unidad"><Plus size={14} /></button></div><strong className="cart-subtotal">{priceFormat.format(Number(item.price) * item.quantity)}</strong><button className="icon-button delete-action" onClick={() => setCart((current) => current.filter((product) => product.id !== item.id))} aria-label={`Quitar ${item.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-state">Tu carrito está vacío. Agrega productos del catálogo.</div>}</section>
-      <aside className="checkout-panel surface-panel"><p className="eyebrow">RESERVA Y PAGO</p><h2>Resumen del pedido</h2><label className="field-label"><span>Elige cómo continuar</span><select className="control" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="RESERVE">Reservar para retirar y pagar en el gimnasio</option><option value="BANK_TRANSFER" disabled={!bankTransferInstructions.trim()}>Transferencia bancaria{bankTransferInstructions.trim() ? '' : ' (no configurada)'}</option><option value="MERCADO_PAGO" disabled={!onlinePaymentAvailable}>Mercado Pago: débito o crédito{onlinePaymentAvailable ? '' : ' (no configurado)'}</option></select></label>{paymentMethod === 'BANK_TRANSFER' && <div className="bank-transfer-details"><strong>Datos para transferir</strong><p>{bankTransferInstructions}</p><small>El pedido queda reservado hasta que el gimnasio verifique la transferencia.</small></div>}{paymentMethod === 'RESERVE' && <p className="checkout-note payment-setup-note">Apartaremos el stock para que retires y pagues en el gimnasio.</p>}{!onlinePaymentAvailable && <p className="checkout-note">El pago con tarjeta/débito se habilita al configurar Mercado Pago en el servidor.</p>}<div className="checkout-total"><span>Total</span><strong>{priceFormat.format(cartTotal)}</strong></div><button className="button primary-btn checkout-button" disabled={!cart.length || busy} onClick={checkout}>{busy ? 'Procesando...' : paymentMethod === 'MERCADO_PAGO' ? 'Pagar con Mercado Pago' : paymentMethod === 'BANK_TRANSFER' ? 'Confirmar transferencia' : 'Reservar productos'}</button><p className="checkout-note">Pedidos con retiro en el gimnasio.</p></aside>
+      <aside className="checkout-panel surface-panel"><p className="eyebrow">RESERVA Y PAGO</p><h2>Resumen del pedido</h2><label className="field-label"><span>Elige cómo continuar</span><select className="control" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="RESERVE">Reservar para retirar y pagar en el gimnasio</option><option value="BANK_TRANSFER" disabled={!bankTransferInstructions.trim()}>Transferencia bancaria{bankTransferInstructions.trim() ? '' : ' (no configurada)'}</option><option value="MERCADO_PAGO" disabled={!onlinePaymentAvailable}>Mercado Pago: débito o crédito{onlinePaymentAvailable ? '' : ' (no configurado)'}</option><option value="WEBPAY" disabled={!webpaySimulationAvailable}>Webpay (simulación){webpaySimulationAvailable ? '' : ' (solo disponible en desarrollo)'}</option></select></label>{paymentMethod === 'BANK_TRANSFER' && <div className="bank-transfer-details"><strong>Datos para transferir</strong><p>{bankTransferInstructions}</p><small>El pedido queda reservado hasta que el gimnasio verifique la transferencia.</small></div>}{paymentMethod === 'RESERVE' && <p className="checkout-note payment-setup-note">Apartaremos el stock para que retires y pagues en el gimnasio.</p>}{paymentMethod === 'WEBPAY' && <p className="checkout-note">Simulación de Webpay: ingresa datos de prueba y selecciona si la respuesta del pago se aprueba o rechaza. No se realiza un cobro real.</p>}{!onlinePaymentAvailable && <p className="checkout-note">Mercado Pago requiere configuración del proveedor en el servidor.</p>}<div className="checkout-total"><span>Total</span><strong>{priceFormat.format(cartTotal)}</strong></div><button className="button primary-btn checkout-button" disabled={!cart.length || busy} onClick={checkout}>{busy ? 'Procesando...' : paymentMethod === 'MERCADO_PAGO' ? 'Pagar con Mercado Pago' : paymentMethod === 'WEBPAY' ? 'Continuar a Webpay' : paymentMethod === 'BANK_TRANSFER' ? 'Confirmar transferencia' : 'Reservar productos'}</button><p className="checkout-note">Pedidos con retiro en el gimnasio.</p></aside>
     </div>}
 
-    {(tab === 'orders' || tab === 'proofs') && <div className="order-list">{visibleOrders.length ? visibleOrders.map((order) => <article className="order-card surface-panel" key={order.id}><header><div><p className="eyebrow">PEDIDO #{order.id} · {new Date(order.created_at).toLocaleDateString('es-CL')}</p><h2>{isAdmin ? order.buyer_name : 'Tu pedido'}</h2></div><span className={`order-status order-${order.status.toLowerCase()}`}>{order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED' ? 'Comprobante en revisión' : order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'REJECTED' ? 'Comprobante rechazado' : order.status === 'PENDING' && order.payment_method === 'RESERVE' ? 'Reservado para retiro' : orderStatus[order.status]}</span></header><div className="order-items">{order.items.map((item) => <div key={item.id}><span>{item.quantity} × {item.product_name}</span><span>{priceFormat.format(item.subtotal)}</span></div>)}</div><footer><div><small>{order.payment_method === 'MERCADO_PAGO' ? 'Mercado Pago · débito/crédito' : order.payment_method === 'BANK_TRANSFER' ? 'Transferencia bancaria' : 'Reserva para retiro'}</small><strong>{priceFormat.format(order.total)}</strong></div>{isAdmin && order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED' && <div className="proof-review-actions"><button className="button button-secondary" onClick={() => downloadProof(order)}><Download size={15} /> Ver comprobante</button><button className="button button-secondary" disabled={busyProofOrder === order.id} onClick={() => reviewProof(order, 'REJECT')}>Rechazar</button><button className="button primary-btn" disabled={busyProofOrder === order.id} onClick={() => reviewProof(order, 'APPROVE')}><Check size={15} /> Aprobar pago</button></div>}{order.user === user?.id && order.payment_method === 'BANK_TRANSFER' && order.status === 'PENDING' && order.proof_status !== 'SUBMITTED' && <div className="proof-upload-row"><div className="proof-upload-input"><Upload size={15} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" aria-label="Seleccionar comprobante de transferencia" onChange={(event) => setProofFiles((current) => ({ ...current, [order.id]: event.target.files?.[0] || null }))} /><span>{proofFiles[order.id]?.name || (order.proof_status === 'REJECTED' ? 'Adjunta otro comprobante' : 'Adjuntar comprobante')}</span></div><button className="button primary-btn" disabled={!proofFiles[order.id] || busyProofOrder === order.id} onClick={() => uploadProof(order)}>{busyProofOrder === order.id ? 'Enviando...' : 'Enviar comprobante'}</button></div>}{order.user === user?.id && order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED' && <p className="proof-pending-note">Comprobante recibido. Tu solicitud está en revisión; recibirás una notificación al resolverse.</p>}{order.proof_status === 'REJECTED' && order.proof_review_note && <p className="notice notice-error proof-rejection-note">Motivo del rechazo: {order.proof_review_note}</p>}{isAdmin && order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'APPROVED' && <span className="proof-approved-note">Comprobante aprobado</span>}{isAdmin && <select className="control order-status-select" value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{Object.entries(orderStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}{order.checkout_url && order.status === 'PENDING' && <a className="button primary-btn" href={order.checkout_url}>Completar pago</a>}</footer></article>) : <div className="surface-panel empty-state">{tab === 'proofs' ? 'No hay comprobantes pendientes de revisión.' : 'Todavía no hay pedidos.'}</div>}</div>}
+    {(tab === 'orders' || tab === 'proofs') && <div className="order-list">{visibleOrders.length ? visibleOrders.map((order) => <article className="order-card surface-panel" key={order.id}><header><div><p className="eyebrow">PEDIDO #{order.id} · {new Date(order.created_at).toLocaleDateString('es-CL')}</p><h2>{isAdmin ? order.buyer_name : 'Tu pedido'}</h2></div><span className={`order-status order-${order.status.toLowerCase()}`}>{order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED' ? 'Comprobante en revisión' : order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'REJECTED' ? 'Comprobante rechazado' : order.status === 'PENDING' && order.payment_method === 'RESERVE' ? 'Reservado para retiro' : orderStatus[order.status]}</span></header><div className="order-items">{order.items.map((item) => <div key={item.id}><span>{item.quantity} × {item.product_name}</span><span>{priceFormat.format(item.subtotal)}</span></div>)}</div><footer><div><small>{order.payment_method === 'MERCADO_PAGO' ? 'Mercado Pago · débito/crédito' : order.payment_method === 'WEBPAY' ? 'Webpay · simulación' : order.payment_method === 'BANK_TRANSFER' ? 'Transferencia bancaria' : 'Reserva para retiro'}</small><strong>{priceFormat.format(order.total)}</strong></div>{isAdmin && order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED' && <div className="proof-review-actions"><button className="button button-secondary" onClick={() => downloadProof(order)}><Download size={15} /> Ver comprobante</button><button className="button button-secondary" disabled={busyProofOrder === order.id} onClick={() => reviewProof(order, 'REJECT')}>Rechazar</button><button className="button primary-btn" disabled={busyProofOrder === order.id} onClick={() => reviewProof(order, 'APPROVE')}><Check size={15} /> Aprobar pago</button></div>}{order.user === user?.id && order.payment_method === 'BANK_TRANSFER' && order.status === 'PENDING' && order.proof_status !== 'SUBMITTED' && <div className="proof-upload-row"><div className="proof-upload-input"><Upload size={15} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" aria-label="Seleccionar comprobante de transferencia" onChange={(event) => setProofFiles((current) => ({ ...current, [order.id]: event.target.files?.[0] || null }))} /><span>{proofFiles[order.id]?.name || (order.proof_status === 'REJECTED' ? 'Adjunta otro comprobante' : 'Adjuntar comprobante')}</span></div><button className="button primary-btn" disabled={!proofFiles[order.id] || busyProofOrder === order.id} onClick={() => uploadProof(order)}>{busyProofOrder === order.id ? 'Enviando...' : 'Enviar comprobante'}</button></div>}{order.user === user?.id && order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'SUBMITTED' && <p className="proof-pending-note">Comprobante recibido. Tu solicitud está en revisión; recibirás una notificación al resolverse.</p>}{order.proof_status === 'REJECTED' && order.proof_review_note && <p className="notice notice-error proof-rejection-note">Motivo del rechazo: {order.proof_review_note}</p>}{isAdmin && order.payment_method === 'BANK_TRANSFER' && order.proof_status === 'APPROVED' && <span className="proof-approved-note">Comprobante aprobado</span>}{isAdmin && <select className="control order-status-select" value={order.status} onChange={(event) => updateOrder(order, event.target.value)}>{Object.entries(orderStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}{order.payment_method === 'WEBPAY' && order.status === 'PENDING' && <button className="button primary-btn" onClick={() => { setWebpayOrder(order); setWebpayResult(null); }}>Completar pago de prueba</button>}{order.checkout_url && order.status === 'PENDING' && <a className="button primary-btn" href={order.checkout_url}>Completar pago</a>}</footer></article>) : <div className="surface-panel empty-state">{tab === 'proofs' ? 'No hay comprobantes pendientes de revisión.' : 'Todavía no hay pedidos.'}</div>}</div>}
     {productEditor && <ProductDialog product={productEditor.id ? productEditor : undefined} onClose={() => setProductEditor(null)} onSave={saveProduct} busy={busy} error={error} />}
     {transferEditorOpen && <TransferInstructionsDialog value={bankTransferInstructions} onClose={() => setTransferEditorOpen(false)} onSave={saveTransferInstructions} busy={busy} error={error} />}
   </section>;

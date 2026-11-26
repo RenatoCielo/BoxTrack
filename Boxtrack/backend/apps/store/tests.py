@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.urls import reverse
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
@@ -142,6 +143,72 @@ class StoreTests(APITestCase):
             'items': [{'product': self.product.pk, 'quantity': 1}],
         }, format='json')
 
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertFalse(Order.objects.exists())
+
+    def create_webpay_order(self):
+        self.client.force_authenticate(user=self.athlete)
+        response = self.client.post(reverse('store-orders'), {
+            'payment_method': 'WEBPAY',
+            'items': [{'product': self.product.pk, 'quantity': 1}],
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.data
+
+    @override_settings(DEBUG=True)
+    def test_webpay_simulation_creates_order_and_exposes_checkout_in_debug(self):
+        self.client.force_authenticate(user=self.athlete)
+        config = self.client.get(reverse('store-checkout-config'))
+        response = self.client.post(reverse('store-orders'), {
+            'payment_method': 'WEBPAY',
+            'items': [{'product': self.product.pk, 'quantity': 1}],
+        }, format='json')
+
+        self.assertTrue(config.data['webpay_simulation_available'])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['payment_method'], 'WEBPAY')
+        self.assertEqual(response.data['status'], 'PENDING')
+        self.assertEqual(response.data['payment_reference'], f'WEBPAY-SIM-{response.data["id"]}')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 3)
+
+    @override_settings(DEBUG=True)
+    def test_webpay_approved_simulation_marks_order_paid_and_notifies_user(self):
+        order = self.create_webpay_order()
+        response = self.client.post(
+            reverse('store-order-webpay-simulation', kwargs={'pk': order['id']}),
+            {'decision': 'APPROVE'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'PAID')
+        self.assertTrue(Notification.objects.filter(user=self.athlete, title='Pago Webpay aprobado').exists())
+
+    @override_settings(DEBUG=True)
+    def test_webpay_rejected_simulation_releases_reserved_stock(self):
+        order = self.create_webpay_order()
+        response = self.client.post(
+            reverse('store-order-webpay-simulation', kwargs={'pk': order['id']}),
+            {'decision': 'REJECT'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'CANCELLED')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 4)
+
+    @override_settings(DEBUG=False)
+    def test_webpay_simulation_is_disabled_outside_debug(self):
+        self.client.force_authenticate(user=self.athlete)
+        config = self.client.get(reverse('store-checkout-config'))
+        response = self.client.post(reverse('store-orders'), {
+            'payment_method': 'WEBPAY',
+            'items': [{'product': self.product.pk, 'quantity': 1}],
+        }, format='json')
+
+        self.assertFalse(config.data['webpay_simulation_available'])
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertFalse(Order.objects.exists())
 

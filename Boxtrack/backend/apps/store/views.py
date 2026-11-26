@@ -9,6 +9,7 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F
 from django.http import FileResponse
@@ -85,6 +86,7 @@ class StoreCheckoutConfigView(APIView):
         store_settings = StoreSettings.objects.filter(club_id=request.user.club_id).first()
         return Response({
             'mercado_pago_available': online_payment_available,
+            'webpay_simulation_available': settings.DEBUG,
             'bank_transfer_instructions': store_settings.bank_transfer_instructions if store_settings else '',
         })
 
@@ -112,7 +114,7 @@ def release_order_stock(order):
 def release_expired_checkouts(club_id):
     expired_orders = Order.objects.filter(
         club_id=club_id,
-        payment_method='MERCADO_PAGO',
+        payment_method__in=('MERCADO_PAGO', 'WEBPAY'),
         status='PENDING',
         stock_released=False,
         expires_at__lte=timezone.now(),
@@ -153,6 +155,8 @@ class OrderListCreateView(APIView):
             'MERCADOPAGO_NOTIFICATION_URL',
         )):
             raise StoreUnavailable()
+        if payment_method == 'WEBPAY' and not settings.DEBUG:
+            raise StoreUnavailable('La simulación Webpay solo está disponible en modo DEBUG.')
 
         quantities = {}
         for entry in items_data:
@@ -184,7 +188,7 @@ class OrderListCreateView(APIView):
                 user=request.user,
                 payment_method=payment_method,
                 notes=request.data.get('notes', '').strip(),
-                expires_at=timezone.now() + timedelta(minutes=30) if payment_method == 'MERCADO_PAGO' else None,
+                expires_at=timezone.now() + timedelta(minutes=30) if payment_method in ('MERCADO_PAGO', 'WEBPAY') else None,
             )
             total = 0
             for product in products:
@@ -217,6 +221,10 @@ class OrderListCreateView(APIView):
                 if isinstance(error, StoreUnavailable):
                     raise
                 raise StoreUnavailable('No se pudo iniciar el pago online. No se realizó el cobro; vuelve a intentarlo.') from error
+
+        if payment_method == 'WEBPAY':
+            order.payment_reference = f'WEBPAY-SIM-{order.pk}'
+            order.save(update_fields=['payment_reference', 'updated_at'])
 
         if payment_method == 'BANK_TRANSFER':
             Notification.objects.create(
@@ -271,6 +279,47 @@ class OrderDetailView(generics.RetrieveUpdateAPIView):
                 order.status = 'CANCELLED'
                 order.save(update_fields=['status', 'updated_at'])
                 release_order_stock(order)
+        return Response(OrderSerializer(order).data)
+
+
+class WebpaySimulationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        if not settings.DEBUG:
+            raise StoreUnavailable('La simulación Webpay solo está disponible en modo DEBUG.')
+        if set(request.data) != {'decision'}:
+            raise ValidationError({'decision': 'Envía únicamente la decisión de simulación.'})
+        decision = request.data.get('decision')
+        if decision not in ('APPROVE', 'REJECT'):
+            raise ValidationError({'decision': 'Selecciona aprobar o rechazar el pago.'})
+
+        release_expired_checkouts(request.user.club_id)
+        queryset = Order.objects.select_for_update().select_related('club', 'user')
+        if not request.user.is_superuser and user_role(request.user) != 'ADMIN':
+            queryset = queryset.filter(user=request.user)
+        with transaction.atomic():
+            order = get_object_or_404(queryset, pk=pk, club_id=request.user.club_id)
+            if order.payment_method != 'WEBPAY' or order.status != 'PENDING':
+                raise ValidationError({'order': 'Este pedido no está esperando una respuesta Webpay.'})
+
+            approved = decision == 'APPROVE'
+            order.status = 'PAID' if approved else 'CANCELLED'
+            order.save(update_fields=['status', 'updated_at'])
+            if not approved:
+                release_order_stock(order)
+            Notification.objects.create(
+                club=order.club,
+                user=order.user,
+                title='Pago Webpay aprobado' if approved else 'Pago Webpay rechazado',
+                message=(
+                    f'La simulación Webpay del pedido #{order.pk} fue aprobada.'
+                    if approved else
+                    f'La simulación Webpay del pedido #{order.pk} fue rechazada. El stock fue liberado.'
+                ),
+                notification_type='ALERT',
+                action_url='/store',
+            )
         return Response(OrderSerializer(order).data)
 
 
