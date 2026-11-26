@@ -75,7 +75,7 @@ class Order(SpanishSchemaModel):
     ]
     PAYMENT_METHOD_CHOICES = [
         ('MERCADO_PAGO', 'Mercado Pago'),
-        ('WEBPAY', 'Webpay (simulación)'),
+        ('WEBPAY', 'Webpay'),
         ('BANK_TRANSFER', 'Transferencia'),
         ('RESERVE', 'Reserva para retiro'),
     ]
@@ -91,6 +91,7 @@ class Order(SpanishSchemaModel):
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='PENDING')
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
     payment_reference = models.CharField(max_length=120, blank=True)
+    webpay_session_id = models.CharField(max_length=61, blank=True)
     checkout_url = models.URLField(blank=True)
     payment_proof = models.FileField(storage=private_payment_proof_storage, upload_to=payment_proof_upload_path, blank=True, null=True)
     proof_status = models.CharField(max_length=16, choices=PROOF_STATUS_CHOICES, default='NOT_SUBMITTED')

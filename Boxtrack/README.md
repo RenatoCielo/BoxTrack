@@ -127,6 +127,8 @@ El administrador agrega productos desde **Tienda**, incluyendo precio y stock. L
 
 Transferencia y pago presencial quedan como pedidos pendientes para confirmación del gimnasio. Para habilitar cobro con Mercado Pago, copia `.env.example` a `.env` en la raíz del proyecto y configura `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` y `MERCADOPAGO_NOTIFICATION_URL`. La URL de notificación debe ser pública y apuntar a `/api/store/payments/mercadopago/webhook/`; en desarrollo local puedes exponer el backend mediante un túnel HTTPS. Sin estas credenciales BOXTRACK desactiva el pago online y no simula cobros.
 
+Webpay Plus usa el SDK oficial `transbank-sdk`. En `INTEGRATION` utiliza las credenciales de prueba incluidas por Transbank, por lo que no requiere una API key propia; el comprador ingresa su tarjeta directamente en el sitio de Webpay. Prueba aprobación con Visa `4051 8856 0044 6623`, CVV `123`, y rechazo con Mastercard `5186 0595 5959 0568`, CVV `123` (cualquier vencimiento). Para producción, establece `TRANSBANK_ENVIRONMENT=PRODUCTION`, `TRANSBANK_COMMERCE_CODE` y `TRANSBANK_API_KEY_SECRET` en `.env`; nunca publiques la llave secreta. El retorno del navegador confirma la transacción con Transbank antes de actualizar el pedido.
+
 ## Plantel competitivo
 
 Los perfiles marcados como competidores aparecen en **Boxeadores competidores**, separados del plantel general. Se les puede asignar un grupo de preparación; las cuentas de deportista solo ven las clases generales y las de su grupo. El récord se calcula automáticamente como victorias-derrotas-empates desde el historial, sin contar sparring.

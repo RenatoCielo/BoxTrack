@@ -139,6 +139,7 @@ SPANISH_COLUMN_NAMES = {
     'image_url': 'url_imagen',
     'payment_method': 'metodo_pago',
     'payment_reference': 'referencia_pago',
+    'webpay_session_id': 'id_sesion_webpay',
     'checkout_url': 'url_pago',
     'payment_proof': 'comprobante_pago',
     'proof_status': 'estado_comprobante',

@@ -1,25 +1,33 @@
 import hashlib
 import hmac
 import json
+import logging
 import mimetypes
 import os
+import secrets
 import urllib.error
 import urllib.request
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import urlencode
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import F
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from requests.exceptions import RequestException
+from transbank.common.integration_api_keys import IntegrationApiKeys
+from transbank.common.integration_commerce_codes import IntegrationCommerceCodes
+from transbank.error.transbank_error import TransbankError
+from transbank.webpay.webpay_plus.transaction import Transaction as WebpayTransaction
 
 from apps.accounts.models import User
 from apps.common.permissions import user_role
@@ -27,11 +35,38 @@ from apps.notifications.models import Notification
 from apps.store.models import Order, OrderItem, Product, StoreSettings
 from apps.store.serializers import OrderSerializer, OrderStatusSerializer, ProductSerializer
 
+logger = logging.getLogger(__name__)
+
 
 class StoreUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = 'El pago online no está configurado. Contacta al administrador del gimnasio.'
     default_code = 'payment_provider_unavailable'
+
+
+def webpay_environment_available():
+    environment = os.getenv('TRANSBANK_ENVIRONMENT', 'INTEGRATION').upper()
+    if environment == 'INTEGRATION':
+        return True
+    if environment == 'PRODUCTION':
+        return bool(os.getenv('TRANSBANK_COMMERCE_CODE') and os.getenv('TRANSBANK_API_KEY_SECRET'))
+    return False
+
+
+def get_webpay_transaction():
+    environment = os.getenv('TRANSBANK_ENVIRONMENT', 'INTEGRATION').upper()
+    commerce_code = os.getenv('TRANSBANK_COMMERCE_CODE')
+    api_key_secret = os.getenv('TRANSBANK_API_KEY_SECRET')
+    if environment == 'INTEGRATION':
+        return WebpayTransaction.build_for_integration(
+            commerce_code or IntegrationCommerceCodes.WEBPAY_PLUS,
+            api_key_secret or IntegrationApiKeys.WEBPAY,
+        )
+    if environment == 'PRODUCTION' and commerce_code and api_key_secret:
+        return WebpayTransaction.build_for_production(commerce_code, api_key_secret)
+    raise StoreUnavailable(
+        'Configura TRANSBANK_ENVIRONMENT como INTEGRATION o define credenciales de producción válidas.'
+    )
 
 
 class ProductPermission(permissions.BasePermission):
@@ -86,7 +121,7 @@ class StoreCheckoutConfigView(APIView):
         store_settings = StoreSettings.objects.filter(club_id=request.user.club_id).first()
         return Response({
             'mercado_pago_available': online_payment_available,
-            'webpay_simulation_available': settings.DEBUG,
+            'webpay_available': webpay_environment_available(),
             'bank_transfer_instructions': store_settings.bank_transfer_instructions if store_settings else '',
         })
 
@@ -155,8 +190,8 @@ class OrderListCreateView(APIView):
             'MERCADOPAGO_NOTIFICATION_URL',
         )):
             raise StoreUnavailable()
-        if payment_method == 'WEBPAY' and not settings.DEBUG:
-            raise StoreUnavailable('La simulación Webpay solo está disponible en modo DEBUG.')
+        if payment_method == 'WEBPAY' and not webpay_environment_available():
+            raise StoreUnavailable('Configura el entorno y las credenciales de Webpay en el archivo .env.')
 
         quantities = {}
         for entry in items_data:
@@ -183,18 +218,25 @@ class OrderListCreateView(APIView):
                 if product.stock < quantities[product.pk]:
                     raise ValidationError({'items': f'Stock insuficiente para {product.name}. Disponibles: {product.stock}.'})
 
+            total = sum(
+                (product.price * quantities[product.pk] for product in products),
+                Decimal('0'),
+            )
+            if payment_method == 'WEBPAY' and total != total.to_integral_value():
+                raise ValidationError({'items': 'Webpay requiere que el total en pesos chilenos sea un monto entero.'})
+            webpay_session_id = secrets.token_urlsafe(32) if payment_method == 'WEBPAY' else ''
             order = Order.objects.create(
                 club=request.user.club,
                 user=request.user,
                 payment_method=payment_method,
                 notes=request.data.get('notes', '').strip(),
+                total=total,
+                webpay_session_id=webpay_session_id,
                 expires_at=timezone.now() + timedelta(minutes=30) if payment_method in ('MERCADO_PAGO', 'WEBPAY') else None,
             )
-            total = 0
             for product in products:
                 quantity = quantities[product.pk]
                 subtotal = product.price * quantity
-                total += subtotal
                 OrderItem.objects.create(
                     order=order,
                     product=product,
@@ -204,8 +246,6 @@ class OrderListCreateView(APIView):
                     subtotal=subtotal,
                 )
                 Product.objects.filter(pk=product.pk).update(stock=F('stock') - quantity)
-            order.total = total
-            order.save(update_fields=['total', 'updated_at'])
 
         if payment_method == 'MERCADO_PAGO':
             try:
@@ -222,9 +262,34 @@ class OrderListCreateView(APIView):
                     raise
                 raise StoreUnavailable('No se pudo iniciar el pago online. No se realizó el cobro; vuelve a intentarlo.') from error
 
+        webpay_data = None
         if payment_method == 'WEBPAY':
-            order.payment_reference = f'WEBPAY-SIM-{order.pk}'
-            order.save(update_fields=['payment_reference', 'updated_at'])
+            try:
+                webpay_data = get_webpay_transaction().create(
+                    f'BT{order.pk}',
+                    order.webpay_session_id,
+                    int(order.total),
+                    request.build_absolute_uri(reverse('webpay-return')),
+                )
+                webpay_token = webpay_data.get('token') if isinstance(webpay_data, dict) else None
+                webpay_url = webpay_data.get('url') if isinstance(webpay_data, dict) else None
+                if (
+                    not isinstance(webpay_token, str)
+                    or not webpay_token.strip()
+                    or not isinstance(webpay_url, str)
+                    or not webpay_url.strip()
+                ):
+                    raise ValueError('Transbank devolvió una respuesta de inicio incompleta.')
+            except (AttributeError, KeyError, RequestException, TransbankError, TypeError, ValueError) as error:
+                logger.exception('No se pudo iniciar Webpay para el pedido %s.', order.pk)
+                with transaction.atomic():
+                    order.status = 'CANCELLED'
+                    order.save(update_fields=['status', 'updated_at'])
+                    release_order_stock(order)
+                raise StoreUnavailable('No se pudo iniciar el pago con Webpay. Inténtalo nuevamente.') from error
+            order.payment_reference = webpay_token.strip()
+            order.checkout_url = webpay_url.strip()
+            order.save(update_fields=['payment_reference', 'checkout_url', 'updated_at'])
 
         if payment_method == 'BANK_TRANSFER':
             Notification.objects.create(
@@ -236,7 +301,13 @@ class OrderListCreateView(APIView):
                 action_url='/store',
             )
 
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+        response_data = OrderSerializer(order).data
+        if webpay_data:
+            response_data['webpay'] = {
+                'url': webpay_data['url'],
+                'token': webpay_data['token'],
+            }
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class OrderDetailView(generics.RetrieveUpdateAPIView):
@@ -282,28 +353,134 @@ class OrderDetailView(generics.RetrieveUpdateAPIView):
         return Response(OrderSerializer(order).data)
 
 
-class WebpaySimulationView(APIView):
+class WebpayLaunchView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        if not settings.DEBUG:
-            raise StoreUnavailable('La simulación Webpay solo está disponible en modo DEBUG.')
-        if set(request.data) != {'decision'}:
-            raise ValidationError({'decision': 'Envía únicamente la decisión de simulación.'})
-        decision = request.data.get('decision')
-        if decision not in ('APPROVE', 'REJECT'):
-            raise ValidationError({'decision': 'Selecciona aprobar o rechazar el pago.'})
-
         release_expired_checkouts(request.user.club_id)
-        queryset = Order.objects.select_for_update().select_related('club', 'user')
-        if not request.user.is_superuser and user_role(request.user) != 'ADMIN':
-            queryset = queryset.filter(user=request.user)
-        with transaction.atomic():
-            order = get_object_or_404(queryset, pk=pk, club_id=request.user.club_id)
-            if order.payment_method != 'WEBPAY' or order.status != 'PENDING':
-                raise ValidationError({'order': 'Este pedido no está esperando una respuesta Webpay.'})
+        order = get_object_or_404(Order.objects.filter(user=request.user), pk=pk)
+        if (
+            order.payment_method != 'WEBPAY'
+            or order.status != 'PENDING'
+            or not order.checkout_url
+            or not order.payment_reference
+        ):
+            raise ValidationError({'order': 'Este pedido no está esperando un pago Webpay.'})
+        return Response({'url': order.checkout_url, 'token': order.payment_reference})
 
-            approved = decision == 'APPROVE'
+
+def webpay_result_redirect(order=None, error=False):
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')
+    query = {'webpay_result': 'error' if error else 'complete'}
+    if order:
+        query['order'] = order.pk
+    return HttpResponseRedirect(f'{frontend_url}/store?{urlencode(query)}')
+
+
+def get_webpay_callback_order(buy_order, session_id):
+    if not buy_order or not session_id or not buy_order.startswith('BT') or not buy_order[2:].isdigit():
+        return None
+    order_id = int(buy_order[2:])
+    order = Order.objects.filter(
+        pk=order_id,
+        payment_method='WEBPAY',
+        webpay_session_id=session_id,
+    ).first()
+    if order and buy_order == f'BT{order.pk}':
+        return order
+    return None
+
+
+def webpay_response_matches_order(order, response):
+    if not isinstance(response, dict):
+        return False
+    try:
+        amount = Decimal(str(response.get('amount')))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+    return (
+        response.get('buy_order') == f'BT{order.pk}'
+        and response.get('session_id') == order.webpay_session_id
+        and amount == order.total
+    )
+
+
+class WebpayReturnView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return self.finish_transaction(request)
+
+    def post(self, request):
+        return self.finish_transaction(request)
+
+    def finish_transaction(self, request):
+        value = lambda key: request.data.get(key) or request.query_params.get(key)
+        token = value('token_ws')
+        aborted_token = value('TBK_TOKEN')
+        buy_order = value('TBK_ORDEN_COMPRA')
+        session_id = value('TBK_ID_SESION')
+
+        if token:
+            order = Order.objects.filter(payment_method='WEBPAY', payment_reference=token).first()
+            if not order:
+                logger.warning('Webpay retornó un token que no corresponde a un pedido pendiente.')
+                return webpay_result_redirect(error=True)
+            if order.status != 'PENDING':
+                return webpay_result_redirect(order=order)
+            try:
+                result = get_webpay_transaction().commit(token)
+            except (TransbankError, RequestException, ValueError) as error:
+                logger.exception('No se pudo confirmar con Transbank el pedido %s.', order.pk)
+                return webpay_result_redirect(order=order, error=True)
+            if not webpay_response_matches_order(order, result):
+                logger.error('La confirmación Webpay no coincide con los datos del pedido %s.', order.pk)
+                return webpay_result_redirect(order=order, error=True)
+            return self.finalize_transaction(order, result)
+
+        order = get_webpay_callback_order(buy_order, session_id)
+        if not order:
+            logger.warning('Webpay retornó una sesión que no corresponde a un pedido.')
+            return webpay_result_redirect(error=True)
+        if order.status != 'PENDING':
+            return webpay_result_redirect(order=order)
+
+        if aborted_token:
+            try:
+                result = get_webpay_transaction().status(aborted_token)
+            except (TransbankError, RequestException, ValueError):
+                logger.exception('No se pudo consultar la sesión Webpay abortada del pedido %s.', order.pk)
+                return webpay_result_redirect(order=order, error=True)
+            if not webpay_response_matches_order(order, result):
+                logger.error('El estado Webpay no coincide con los datos del pedido %s.', order.pk)
+                return webpay_result_redirect(order=order, error=True)
+            if result.get('status') not in ('INITIALIZED', 'FAILED', 'REVERSED'):
+                logger.warning('Webpay devolvió estado inesperado al abortar el pedido %s.', order.pk)
+                return webpay_result_redirect(order=order, error=True)
+
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(pk=order.pk)
+            if order.status == 'PENDING':
+                order.status = 'CANCELLED'
+                order.save(update_fields=['status', 'updated_at'])
+                release_order_stock(order)
+                Notification.objects.create(
+                    club=order.club,
+                    user=order.user,
+                    title='Pago Webpay no completado',
+                    message=f'El pago Webpay del pedido #{order.pk} no se completó. El stock fue liberado.',
+                    notification_type='ALERT',
+                    action_url='/store',
+                )
+        return webpay_result_redirect(order=order)
+
+    def finalize_transaction(self, order, result):
+        approved = result.get('response_code') == 0 and result.get('status') == 'AUTHORIZED'
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(pk=order.pk)
+            if order.status != 'PENDING':
+                return webpay_result_redirect(order=order)
             order.status = 'PAID' if approved else 'CANCELLED'
             order.save(update_fields=['status', 'updated_at'])
             if not approved:
@@ -313,14 +490,14 @@ class WebpaySimulationView(APIView):
                 user=order.user,
                 title='Pago Webpay aprobado' if approved else 'Pago Webpay rechazado',
                 message=(
-                    f'La simulación Webpay del pedido #{order.pk} fue aprobada.'
+                    f'El pago Webpay del pedido #{order.pk} fue aprobado.'
                     if approved else
-                    f'La simulación Webpay del pedido #{order.pk} fue rechazada. El stock fue liberado.'
+                    f'El pago Webpay del pedido #{order.pk} fue rechazado. El stock fue liberado.'
                 ),
                 notification_type='ALERT',
                 action_url='/store',
             )
-        return Response(OrderSerializer(order).data)
+        return webpay_result_redirect(order=order)
 
 
 class OrderPaymentProofUploadView(APIView):

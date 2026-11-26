@@ -46,6 +46,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     buyer_name = serializers.SerializerMethodField()
+    payment_reference = serializers.SerializerMethodField()
     has_payment_proof = serializers.SerializerMethodField()
     payment_proof_file_name = serializers.SerializerMethodField()
 
@@ -61,6 +62,9 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_buyer_name(self, order):
         return order.user.display_name
+
+    def get_payment_reference(self, order):
+        return '' if order.payment_method == 'WEBPAY' else order.payment_reference
 
     def get_has_payment_proof(self, order):
         return bool(order.payment_proof)
