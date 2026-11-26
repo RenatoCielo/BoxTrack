@@ -75,6 +75,7 @@ class Order(SpanishSchemaModel):
     ]
     PAYMENT_METHOD_CHOICES = [
         ('MERCADO_PAGO', 'Mercado Pago'),
+        ('WEBPAY', 'Webpay (simulación)'),
         ('BANK_TRANSFER', 'Transferencia'),
         ('RESERVE', 'Reserva para retiro'),
     ]
