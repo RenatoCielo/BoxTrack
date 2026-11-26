@@ -1,12 +1,14 @@
+import os
 from decimal import Decimal
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.urls import reverse
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
+from transbank.error.transbank_error import TransbankError
 
 from apps.accounts.models import Role, User
 from apps.clubs.models import Club
@@ -148,69 +150,185 @@ class StoreTests(APITestCase):
 
     def create_webpay_order(self):
         self.client.force_authenticate(user=self.athlete)
-        response = self.client.post(reverse('store-orders'), {
-            'payment_method': 'WEBPAY',
-            'items': [{'product': self.product.pk, 'quantity': 1}],
-        }, format='json')
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.create.return_value = {
+                'token': 'webpay-test-token',
+                'url': 'https://webpay3gint.transbank.cl/webpayserver/initTransaction',
+            }
+            response = self.client.post(reverse('store-orders'), {
+                'payment_method': 'WEBPAY',
+                'items': [{'product': self.product.pk, 'quantity': 2}],
+            }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.data
 
-    @override_settings(DEBUG=True)
-    def test_webpay_simulation_creates_order_and_exposes_checkout_in_debug(self):
+    def test_webpay_checkout_creates_provider_transaction_and_keeps_token_private(self):
         self.client.force_authenticate(user=self.athlete)
-        config = self.client.get(reverse('store-checkout-config'))
-        response = self.client.post(reverse('store-orders'), {
-            'payment_method': 'WEBPAY',
-            'items': [{'product': self.product.pk, 'quantity': 1}],
-        }, format='json')
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.create.return_value = {
+                'token': 'webpay-test-token',
+                'url': 'https://webpay3gint.transbank.cl/webpayserver/initTransaction',
+            }
+            response = self.client.post(reverse('store-orders'), {
+                'payment_method': 'WEBPAY',
+                'items': [{'product': self.product.pk, 'quantity': 1}],
+            }, format='json')
 
-        self.assertTrue(config.data['webpay_simulation_available'])
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['payment_method'], 'WEBPAY')
         self.assertEqual(response.data['status'], 'PENDING')
-        self.assertEqual(response.data['payment_reference'], f'WEBPAY-SIM-{response.data["id"]}')
+        self.assertEqual(response.data['payment_reference'], '')
+        self.assertEqual(response.data['webpay']['token'], 'webpay-test-token')
+        self.assertEqual(response.data['checkout_url'], 'https://webpay3gint.transbank.cl/webpayserver/initTransaction')
+        get_transaction.return_value.create.assert_called_once()
+        self.assertEqual(get_transaction.return_value.create.call_args.args[0], f'BT{response.data["id"]}')
+        self.assertEqual(get_transaction.return_value.create.call_args.args[2], 45000)
+        order = Order.objects.get(pk=response.data['id'])
+        self.assertEqual(order.payment_reference, 'webpay-test-token')
+        self.assertTrue(order.webpay_session_id)
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock, 3)
 
-    @override_settings(DEBUG=True)
-    def test_webpay_approved_simulation_marks_order_paid_and_notifies_user(self):
+    def test_webpay_pending_order_can_resume_provider_redirect(self):
         order = self.create_webpay_order()
-        response = self.client.post(
-            reverse('store-order-webpay-simulation', kwargs={'pk': order['id']}),
-            {'decision': 'APPROVE'},
-            format='json',
-        )
+        response = self.client.post(reverse('store-order-webpay-launch', kwargs={'pk': order['id']}))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['status'], 'PAID')
+        self.assertEqual(response.data['token'], 'webpay-test-token')
+        self.assertEqual(response.data['url'], 'https://webpay3gint.transbank.cl/webpayserver/initTransaction')
+
+    def test_webpay_approved_callback_commits_and_notifies_user(self):
+        order = self.create_webpay_order()
+        stored_order = Order.objects.get(pk=order['id'])
+        provider_result = {
+            'response_code': 0,
+            'status': 'AUTHORIZED',
+            'amount': 90000,
+            'buy_order': f'BT{stored_order.pk}',
+            'session_id': stored_order.webpay_session_id,
+        }
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.commit.return_value = provider_result
+            response = self.client.get(reverse('webpay-return'), {'token_ws': stored_order.payment_reference})
+
+        self.assertEqual(response.status_code, 302)
+        stored_order.refresh_from_db()
+        self.assertEqual(stored_order.status, 'PAID')
         self.assertTrue(Notification.objects.filter(user=self.athlete, title='Pago Webpay aprobado').exists())
 
-    @override_settings(DEBUG=True)
-    def test_webpay_rejected_simulation_releases_reserved_stock(self):
+    def test_webpay_rejected_callback_releases_reserved_stock(self):
         order = self.create_webpay_order()
-        response = self.client.post(
-            reverse('store-order-webpay-simulation', kwargs={'pk': order['id']}),
-            {'decision': 'REJECT'},
-            format='json',
-        )
+        stored_order = Order.objects.get(pk=order['id'])
+        provider_result = {
+            'response_code': 5,
+            'status': 'FAILED',
+            'amount': 90000,
+            'buy_order': f'BT{stored_order.pk}',
+            'session_id': stored_order.webpay_session_id,
+        }
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.commit.return_value = provider_result
+            response = self.client.get(reverse('webpay-return'), {'token_ws': stored_order.payment_reference})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['status'], 'CANCELLED')
+        self.assertEqual(response.status_code, 302)
+        stored_order.refresh_from_db()
+        self.assertEqual(stored_order.status, 'CANCELLED')
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock, 4)
 
-    @override_settings(DEBUG=False)
-    def test_webpay_simulation_is_disabled_outside_debug(self):
-        self.client.force_authenticate(user=self.athlete)
-        config = self.client.get(reverse('store-checkout-config'))
-        response = self.client.post(reverse('store-orders'), {
-            'payment_method': 'WEBPAY',
-            'items': [{'product': self.product.pk, 'quantity': 1}],
-        }, format='json')
+    def test_webpay_abort_callback_checks_provider_status_before_releasing_stock(self):
+        order = self.create_webpay_order()
+        stored_order = Order.objects.get(pk=order['id'])
+        provider_result = {
+            'response_code': 0,
+            'status': 'INITIALIZED',
+            'amount': 90000,
+            'buy_order': f'BT{stored_order.pk}',
+            'session_id': stored_order.webpay_session_id,
+        }
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.status.return_value = provider_result
+            response = self.client.get(reverse('webpay-return'), {
+                'TBK_TOKEN': stored_order.payment_reference,
+                'TBK_ORDEN_COMPRA': f'BT{stored_order.pk}',
+                'TBK_ID_SESION': stored_order.webpay_session_id,
+            })
 
-        self.assertFalse(config.data['webpay_simulation_available'])
+        self.assertEqual(response.status_code, 302)
+        get_transaction.return_value.status.assert_called_once_with(stored_order.payment_reference)
+        stored_order.refresh_from_db()
+        self.assertEqual(stored_order.status, 'CANCELLED')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 4)
+
+    def test_webpay_timeout_callback_releases_reserved_stock(self):
+        order = self.create_webpay_order()
+        stored_order = Order.objects.get(pk=order['id'])
+        response = self.client.get(reverse('webpay-return'), {
+            'TBK_ORDEN_COMPRA': f'BT{stored_order.pk}',
+            'TBK_ID_SESION': stored_order.webpay_session_id,
+        })
+
+        self.assertEqual(response.status_code, 302)
+        stored_order.refresh_from_db()
+        self.assertEqual(stored_order.status, 'CANCELLED')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 4)
+
+    def test_webpay_integration_credentials_are_available_by_default(self):
+        with patch.dict(os.environ, {
+            'TRANSBANK_ENVIRONMENT': 'INTEGRATION',
+            'TRANSBANK_COMMERCE_CODE': '',
+            'TRANSBANK_API_KEY_SECRET': '',
+        }):
+            self.client.force_authenticate(user=self.athlete)
+            config = self.client.get(reverse('store-checkout-config'))
+
+        self.assertTrue(config.data['webpay_available'])
+
+    def test_webpay_production_requires_commerce_credentials(self):
+        with patch.dict(os.environ, {
+            'TRANSBANK_ENVIRONMENT': 'PRODUCTION',
+            'TRANSBANK_COMMERCE_CODE': '',
+            'TRANSBANK_API_KEY_SECRET': '',
+        }):
+            self.client.force_authenticate(user=self.athlete)
+            config = self.client.get(reverse('store-checkout-config'))
+
+        self.assertFalse(config.data['webpay_available'])
+
+    def test_webpay_provider_error_cancels_order_and_releases_stock(self):
+        self.client.force_authenticate(user=self.athlete)
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.create.side_effect = TransbankError('provider unavailable')
+            response = self.client.post(reverse('store-orders'), {
+                'payment_method': 'WEBPAY',
+                'items': [{'product': self.product.pk, 'quantity': 1}],
+            }, format='json')
+
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertFalse(Order.objects.exists())
+        order = Order.objects.get()
+        self.assertEqual(order.status, 'CANCELLED')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 4)
+
+    def test_webpay_malformed_create_response_cancels_order_and_releases_stock(self):
+        self.client.force_authenticate(user=self.athlete)
+        with patch('apps.store.views.get_webpay_transaction') as get_transaction:
+            get_transaction.return_value.create.return_value = {
+                'token': 123,
+                'url': 'https://webpay3gint.transbank.cl/webpayserver/initTransaction',
+            }
+            response = self.client.post(reverse('store-orders'), {
+                'payment_method': 'WEBPAY',
+                'items': [{'product': self.product.pk, 'quantity': 1}],
+            }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        order = Order.objects.get()
+        self.assertEqual(order.status, 'CANCELLED')
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 4)
 
     def test_transfer_order_requires_club_bank_instructions(self):
         StoreSettings.objects.filter(club=self.club).update(bank_transfer_instructions='')
